@@ -200,6 +200,8 @@
   .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
   .session-sets { margin-top: 10px; font-size: 13px; color: var(--muted); }
   .session-sets span { display: inline-block; background: #0e0e13; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; margin: 3px 4px 0 0; }
+  @keyframes chipPop { 0% { transform: scale(0.85); opacity: 0; border-color: var(--good); color: var(--good); } 100% { transform: scale(1); opacity: 1; } }
+  .session-sets span.new-chip { animation: chipPop 0.35s ease-out; }
 
   .stepper { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
   .stepper button { width: 44px; height: 44px; border-radius: 50%; background: #23232c; color: var(--text); font-size: 20px; padding: 0; }
@@ -435,6 +437,8 @@ const MEAL_LIBRARY_KEY = 'nt_meal_library';
 const NUTRITION_KEY = 'nt_entries';
 const NUTRITION_TARGETS_KEY = 'nt_targets';
 const DAILY_LOG_KEY = 'daily_log';
+const ACTIVE_SESSION_KEY = 'rt_active_session';
+const SESSION_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
 const DEFAULT_LIBRARY = [
   ['Chest', 'Chest Press Machine'],
@@ -613,6 +617,16 @@ function saveDailyLog(entry) {
   all[entry.date] = entry;
   saveAllDailyLogs(all);
 }
+function getActiveSession() {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY)); }
+  catch { return null; }
+}
+function saveActiveSession(session) {
+  localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(session));
+}
+function clearActiveSession() {
+  localStorage.removeItem(ACTIVE_SESSION_KEY);
+}
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -770,7 +784,7 @@ document.querySelectorAll('.navbtn').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     renderAll();
     if (btn.dataset.tab === 'progress') renderCurrentProgressMode();
-    if (btn.dataset.tab === 'workouts') { workoutsState.view = 'list'; renderWorkoutsTab(); }
+    if (btn.dataset.tab === 'workouts') { checkSessionExpiry(); renderWorkoutsTab(); }
     if (btn.dataset.tab === 'nutrition') renderNutritionTab();
   });
 });
@@ -858,7 +872,12 @@ function renderTodayWorkoutCard() {
   if (!workout) { card.style.display = 'none'; return; }
   card.style.display = '';
   const btn = document.getElementById('startTodayWorkoutBtn');
-  btn.textContent = `Start ${workout.name}`;
+  const active = getActiveSession();
+  if (active && active.workoutId === workout.id) {
+    btn.textContent = `Resume ${workout.name} — ${formatElapsed(Date.now() - active.startedAt)} in`;
+  } else {
+    btn.textContent = `Start ${workout.name}`;
+  }
   btn.onclick = () => startWorkoutById(workout.id);
 }
 
@@ -906,7 +925,45 @@ function renderTodayNutritionSummary() {
 }
 
 // --- Workouts ---
-let workoutsState = { view: 'list', editing: null, search: '' };
+let workoutsState = { view: 'list', editing: null, search: '', sessionStartedAt: null };
+let sessionTimerHandle = null;
+
+function checkSessionExpiry() {
+  const active = getActiveSession();
+  if (!active) return false;
+  if (Date.now() - active.startedAt >= SESSION_TIMEOUT_MS) {
+    clearActiveSession();
+    if (workoutsState.view === 'session' && workoutsState.editing && workoutsState.editing.id === active.workoutId) {
+      workoutsState.view = 'list';
+      workoutsState.editing = null;
+      workoutsState.sessionStartedAt = null;
+    }
+    stopSessionTimer();
+    return true;
+  }
+  return false;
+}
+
+function restoreActiveSessionIfAny() {
+  if (checkSessionExpiry()) return;
+  const active = getActiveSession();
+  if (!active) return;
+  const w = getWorkouts().find(x => x.id === active.workoutId);
+  if (!w) { clearActiveSession(); return; }
+  workoutsState.editing = w;
+  workoutsState.view = 'session';
+  workoutsState.sessionStartedAt = active.startedAt;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const expired = checkSessionExpiry();
+  if (expired) {
+    alert('Your workout session timed out after 3 hours and was ended.');
+    if (document.getElementById('tab-workouts').classList.contains('active')) renderWorkoutsTab();
+    renderAll();
+  }
+});
 
 function todaysScheduledWorkoutName() {
   const day = new Date().getDay();
@@ -950,16 +1007,48 @@ function seedPresetWorkoutsIfNeeded() {
 function startWorkoutById(id) {
   const w = getWorkouts().find(x => x.id === id);
   if (!w) return;
+  checkSessionExpiry();
+  const existing = getActiveSession();
+  const startedAt = (existing && existing.workoutId === id) ? existing.startedAt : Date.now();
   workoutsState.editing = w;
   workoutsState.view = 'session';
+  workoutsState.sessionStartedAt = startedAt;
+  saveActiveSession({ workoutId: id, startedAt });
   document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'workouts'));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-workouts'));
   renderWorkoutsTab();
 }
 
+function stopSessionTimer() {
+  if (sessionTimerHandle) { clearInterval(sessionTimerHandle); sessionTimerHandle = null; }
+}
+
+function formatElapsed(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const p = n => String(n).padStart(2, '0');
+  return `${h}:${p(m)}:${p(s)}`;
+}
+
+function tickSessionTimer() {
+  if (checkSessionExpiry()) {
+    alert('Your workout session timed out after 3 hours and was ended.');
+    renderWorkoutsTab();
+    renderAll();
+    return;
+  }
+  const el = document.getElementById('sessionTimer');
+  if (el && workoutsState.sessionStartedAt) {
+    el.textContent = formatElapsed(Date.now() - workoutsState.sessionStartedAt);
+  }
+}
+
 function renderWorkoutsTab() {
   const root = document.getElementById('workoutsRoot');
   const title = document.getElementById('headerTitle');
+  stopSessionTimer();
   if (workoutsState.view === 'list') {
     title.textContent = 'Rep Tracker';
     root.innerHTML = renderWorkoutsListHtml();
@@ -972,6 +1061,8 @@ function renderWorkoutsTab() {
     title.textContent = workoutsState.editing.name;
     root.innerHTML = renderSessionHtml();
     wireSession();
+    tickSessionTimer();
+    sessionTimerHandle = setInterval(tickSessionTimer, 1000);
   }
 }
 
@@ -1210,13 +1301,18 @@ function progressionSuggestion(name, repMin, repMax) {
 
 function renderSessionHtml() {
   const workout = workoutsState.editing;
+  let exercisesStarted = 0;
+  let totalSetsToday = 0;
+
   const cards = workout.exercises.map(ex => {
     const suggestion = progressionSuggestion(ex.name, ex.repMin, ex.repMax);
     const todaysSets = getEntries()
       .filter(e => e.exercise === ex.name && e.date === todayStr())
       .sort((a, b) => a.id.localeCompare(b.id));
+    if (todaysSets.length) exercisesStarted++;
+    totalSetsToday += todaysSets.length;
     const setsHtml = todaysSets.length
-      ? todaysSets.map(e => `<span>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')
+      ? todaysSets.map((e, i) => `<span${i === todaysSets.length - 1 ? ' class="new-chip"' : ''}>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')
       : '<span style="opacity:.5">No sets logged yet today</span>';
     const badge = ex.repMin === ex.repMax ? `${ex.sets} × ${ex.repMin} reps` : `${ex.sets} × ${ex.repMin}–${ex.repMax} reps`;
 
@@ -1249,6 +1345,13 @@ function renderSessionHtml() {
   }).join('');
 
   return `
+    <div class="card">
+      <div class="stat-row" style="margin-top:0">
+        <div class="stat"><div class="val" id="sessionTimer">0:00:00</div><div class="lbl">Elapsed</div></div>
+        <div class="stat"><div class="val">${exercisesStarted}/${workout.exercises.length}</div><div class="lbl">Exercises</div></div>
+        <div class="stat"><div class="val">${totalSetsToday}</div><div class="lbl">Sets</div></div>
+      </div>
+    </div>
     <button class="secondary" id="finishWorkoutBtn">Finish Workout</button>
     <div style="margin-top:16px">${cards}</div>
   `;
@@ -1256,7 +1359,11 @@ function renderSessionHtml() {
 
 function wireSession() {
   document.getElementById('finishWorkoutBtn').addEventListener('click', () => {
+    stopSessionTimer();
+    clearActiveSession();
     workoutsState.view = 'list';
+    workoutsState.editing = null;
+    workoutsState.sessionStartedAt = null;
     renderWorkoutsTab();
   });
   document.querySelectorAll('.session-exercise').forEach(card => {
@@ -1730,6 +1837,7 @@ getLibrary();
 seedPresetWorkoutsIfNeeded();
 getMealLibrary();
 loadTargetsIntoForm();
+restoreActiveSessionIfAny();
 renderAll();
 
 loadPhotoCache().then(() => {
