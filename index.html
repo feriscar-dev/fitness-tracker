@@ -110,6 +110,7 @@
   }
   .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
   canvas { width: 100%; height: 200px; display: block; }
+  canvas.mini-chart { height: 70px; }
   .stat-row { display: flex; gap: 12px; margin-top: 12px; }
   .stat { flex: 1; text-align: center; }
   .stat .val { font-size: 20px; font-weight: 700; }
@@ -148,8 +149,8 @@
   .btn-edit { background: #23232c; color: var(--text); }
   .btn-del { background: transparent; color: var(--danger); }
 
-  .ex-visual { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--muted); }
-  .ex-photo { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+  .ex-visual { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ex-photo { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 
   .lib-search-results {
     max-height: 280px;
@@ -196,6 +197,7 @@
 
   .session-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .session-header .name { font-size: 17px; font-weight: 700; }
+  .remove-ex-btn { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 12px; font-weight: 500; flex-shrink: 0; }
   .rep-badge { display: inline-block; background: #0e0e13; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 3px 8px; border-radius: 8px; margin-bottom: 10px; }
   .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
   .session-sets { margin-top: 10px; font-size: 13px; color: var(--muted); }
@@ -315,20 +317,40 @@
     </div>
 
     <div id="progressLifts">
-      <div class="card">
-        <label>Exercise</label>
-        <select id="progressExercise"></select>
-        <div class="pill-group" style="margin-top:12px">
-          <button type="button" class="pill active" data-metric="weight">Weight</button>
-          <button type="button" class="pill" data-metric="reps">Reps</button>
-          <button type="button" class="pill" data-metric="volume">Volume</button>
+      <div class="pill-group">
+        <button type="button" class="pill active" data-liftsview="exercise">By Exercise</button>
+        <button type="button" class="pill" data-liftsview="workout">By Workout</button>
+      </div>
+
+      <div id="liftsByExercise">
+        <div class="card">
+          <label>Exercise</label>
+          <select id="progressExercise"></select>
+          <div class="pill-group" style="margin-top:12px">
+            <button type="button" class="pill active" data-metric="weight">Weight</button>
+            <button type="button" class="pill" data-metric="reps">Reps</button>
+            <button type="button" class="pill" data-metric="volume">Volume</button>
+          </div>
+          <canvas id="chart"></canvas>
+          <div class="stat-row">
+            <div class="stat"><div class="val" id="statBest">-</div><div class="lbl">Best</div></div>
+            <div class="stat"><div class="val" id="statLast">-</div><div class="lbl">Last</div></div>
+            <div class="stat"><div class="val" id="statCount">-</div><div class="lbl">Sessions</div></div>
+          </div>
         </div>
-        <canvas id="chart"></canvas>
-        <div class="stat-row">
-          <div class="stat"><div class="val" id="statBest">-</div><div class="lbl">Best</div></div>
-          <div class="stat"><div class="val" id="statLast">-</div><div class="lbl">Last</div></div>
-          <div class="stat"><div class="val" id="statCount">-</div><div class="lbl">Sessions</div></div>
+      </div>
+
+      <div id="liftsByWorkout" style="display:none">
+        <div class="card">
+          <label>Workout</label>
+          <select id="progressWorkoutSelect"></select>
+          <div class="pill-group" style="margin-top:12px">
+            <button type="button" class="pill active" data-wmetric="weight">Weight</button>
+            <button type="button" class="pill" data-wmetric="reps">Reps</button>
+            <button type="button" class="pill" data-wmetric="volume">Volume</button>
+          </div>
         </div>
+        <div id="workoutExerciseTrends"></div>
       </div>
     </div>
 
@@ -518,6 +540,92 @@ const CATEGORY_ICONS = {
   Custom: '<circle cx="12" cy="12" r="9" fill="none"/><path d="M12 7v10M7 12h10" fill="none" stroke-linecap="round"/>'
 };
 
+const CATEGORY_COLORS = {
+  Chest: '#ff6b6b',
+  Back: '#4ec9ff',
+  Shoulders: '#c792ea',
+  Legs: '#30d158',
+  Arms: '#ffa94d',
+  Core: '#ffd43b',
+  Custom: '#0a84ff'
+};
+
+const POSE_HEAD = '<circle cx="12" cy="3.5" r="2.2" fill="currentColor"/>';
+const POSE_TORSO = '<line x1="12" y1="5.7" x2="12" y2="14"/>';
+const POSE_LEGS_STAND = '<path d="M12 14L8 21M12 14L16 21"/>';
+const POSE_LEGS_SEAT = '<path d="M12 14L9 17L9 21M12 14L15 17L15 21"/>';
+
+const POSE_ICONS = {
+  press: POSE_HEAD + POSE_TORSO + '<path d="M6 9L11 9M13 9L18 9M6 9L4 6M18 9L20 6"/>' + POSE_LEGS_STAND,
+  fly: POSE_HEAD + POSE_TORSO + '<path d="M4 7Q8 10 12 9Q16 10 20 7"/>' + POSE_LEGS_STAND,
+  pushup: '<circle cx="4" cy="15" r="2.1" fill="currentColor"/><path d="M6 15L19 10"/><path d="M10 14L9 19M15 12L15 18"/>',
+  pulldown: POSE_HEAD + POSE_TORSO + '<path d="M12 8L6 3M12 8L18 3M6 3L6 6M18 3L18 6"/>' + POSE_LEGS_STAND,
+  row: POSE_HEAD + POSE_TORSO + '<path d="M12 9L6 7M12 9L18 7"/>' + POSE_LEGS_SEAT,
+  backExtension: POSE_HEAD + '<path d="M12 5.7Q8 9 12 14"/>' + POSE_LEGS_STAND,
+  facePull: POSE_HEAD + POSE_TORSO + '<path d="M12 8L9 4L8 4M12 8L15 4L16 4"/>' + POSE_LEGS_STAND,
+  reverseFly: POSE_HEAD + POSE_TORSO + '<path d="M12 8L6 6M12 8L18 6"/>' + POSE_LEGS_STAND,
+  overheadPress: POSE_HEAD + POSE_TORSO + '<path d="M12 8L9 2M12 8L15 2"/>' + POSE_LEGS_STAND,
+  lateralRaise: POSE_HEAD + POSE_TORSO + '<path d="M12 8L4 8M12 8L20 8"/>' + POSE_LEGS_STAND,
+  legPress: POSE_HEAD + '<line x1="12" y1="6" x2="12" y2="12"/>' + '<path d="M12 12L8 14L8 19M12 12L16 14L20 12"/>',
+  legExtension: POSE_HEAD + POSE_TORSO + '<path d="M12 14L9 17L9 21M12 14L15 17L19 15"/>',
+  legCurl: POSE_HEAD + POSE_TORSO + '<path d="M12 14L9 17L9 21M12 14L15 16L13 12"/>',
+  squat: POSE_HEAD + '<line x1="12" y1="6" x2="12" y2="13"/>' + '<path d="M12 13L8 16L8 21M12 13L16 16L16 21"/>' + '<path d="M9 10L15 10"/>',
+  calfRaise: POSE_HEAD + POSE_TORSO + '<path d="M12 14L8 19L9 21M12 14L16 19L15 21"/>',
+  hipAbduction: POSE_HEAD + POSE_TORSO + '<path d="M12 14L6 20M12 14L18 20"/>',
+  hipHinge: POSE_HEAD + '<path d="M12 5.7L9 11L12 14"/>' + POSE_LEGS_STAND,
+  tricepPushdown: POSE_HEAD + POSE_TORSO + '<path d="M12 8L7 8L7 13M12 8L17 8L17 13"/>' + POSE_LEGS_STAND,
+  curl: POSE_HEAD + POSE_TORSO + '<path d="M12 9L7 9L7 5M12 9L17 9L17 5"/>' + POSE_LEGS_STAND,
+  overheadTricep: POSE_HEAD + POSE_TORSO + '<path d="M12 4L9 8M12 4L15 8"/>' + POSE_LEGS_STAND,
+  core: POSE_HEAD + '<path d="M12 6Q10 10 12 13"/>' + '<path d="M12 13L9 12L8 16M12 13L15 12L16 16"/>'
+};
+
+const EXERCISE_POSES = {
+  'chest press machine': 'press',
+  'incline chest press machine': 'press',
+  'pec deck (chest fly) machine': 'fly',
+  'cable crossover': 'fly',
+  'flat barbell bench press': 'press',
+  'incline barbell bench press': 'press',
+  'dumbbell bench press': 'press',
+  'push-ups': 'pushup',
+  'lat pulldown': 'pulldown',
+  'seated cable row': 'row',
+  'assisted pull-up machine': 'pulldown',
+  't-bar row': 'row',
+  'back extension machine': 'backExtension',
+  'straight-arm pulldown': 'pulldown',
+  'face pulls': 'facePull',
+  'chest-supported row': 'row',
+  'reverse fly': 'reverseFly',
+  'shoulder press machine': 'overheadPress',
+  'dumbbell shoulder press': 'overheadPress',
+  'lateral raise machine': 'lateralRaise',
+  'rear delt fly machine': 'reverseFly',
+  'cable lateral raise': 'lateralRaise',
+  'leg press': 'legPress',
+  'leg extension': 'legExtension',
+  'seated leg curl': 'legCurl',
+  'smith machine squat': 'squat',
+  'hack squat machine': 'squat',
+  'calf raise machine': 'calfRaise',
+  'hip abductor machine': 'hipAbduction',
+  'hip adductor machine': 'hipAbduction',
+  'db rdl': 'hipHinge',
+  'hip thrust': 'hipHinge',
+  'cable tricep pushdown': 'tricepPushdown',
+  'bicep curl machine': 'curl',
+  'preacher curl machine': 'curl',
+  'dumbbell bicep curl': 'curl',
+  'overhead cable tricep extension': 'overheadTricep',
+  'cable curl': 'curl',
+  'barbell curl': 'curl',
+  'ab crunch machine': 'core',
+  'cable woodchopper': 'core',
+  'hanging leg raise': 'core',
+  'roman chair back extension': 'backExtension',
+  'abs': 'core'
+};
+
 function getEntries() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
   catch { return []; }
@@ -657,6 +765,12 @@ function getLastEntryFor(exercise) {
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   return matches.length ? matches[matches.length - 1] : null;
 }
+function getLastSessionSets(exercise) {
+  const entries = getEntries().filter(e => e.exercise === exercise && e.date !== todayStr());
+  if (!entries.length) return null;
+  const lastDate = entries.reduce((max, e) => (e.date > max ? e.date : max), entries[0].date);
+  return { date: lastDate, sets: entries.filter(e => e.date === lastDate).sort((a, b) => a.id.localeCompare(b.id)) };
+}
 function averageInRange(entries, field, startDaysAgo, endDaysAgo) {
   const now = Date.now();
   const inRange = entries.filter(e => {
@@ -762,14 +876,23 @@ function resizeImageFile(file, maxEdge = 400, quality = 0.7) {
 }
 function categoryIconSvg(category) {
   const inner = CATEGORY_ICONS[category] || CATEGORY_ICONS.Custom;
-  return `<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" stroke="currentColor" stroke-width="1.5">${inner}</svg>`;
+  return `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" stroke="currentColor" stroke-width="1.5">${inner}</svg>`;
+}
+function poseIconSvg(poseKey) {
+  return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${POSE_ICONS[poseKey]}</svg>`;
+}
+function exerciseIconSvg(name, category) {
+  const poseKey = EXERCISE_POSES[name.trim().toLowerCase()];
+  if (poseKey && POSE_ICONS[poseKey]) return poseIconSvg(poseKey);
+  return categoryIconSvg(category);
 }
 function exerciseVisualHtml(name) {
   const item = getLibraryItemByName(name);
   const category = item ? item.category : 'Custom';
   const photo = item && photoCache[item.id];
   if (photo) return `<img class="ex-photo" src="${photo}" alt="">`;
-  return `<div class="ex-visual">${categoryIconSvg(category)}</div>`;
+  const color = CATEGORY_COLORS[category] || CATEGORY_COLORS.Custom;
+  return `<div class="ex-visual" style="background:${color}22; color:${color}">${exerciseIconSvg(name, category)}</div>`;
 }
 
 let settings = getSettings();
@@ -925,7 +1048,7 @@ function renderTodayNutritionSummary() {
 }
 
 // --- Workouts ---
-let workoutsState = { view: 'list', editing: null, search: '', sessionStartedAt: null };
+let workoutsState = { view: 'list', editing: null, search: '', sessionStartedAt: null, sessionAddingExercise: false, sessionSearch: '' };
 let sessionTimerHandle = null;
 
 function checkSessionExpiry() {
@@ -950,7 +1073,8 @@ function restoreActiveSessionIfAny() {
   if (!active) return;
   const w = getWorkouts().find(x => x.id === active.workoutId);
   if (!w) { clearActiveSession(); return; }
-  workoutsState.editing = w;
+  const exercises = Array.isArray(active.exercises) ? active.exercises : JSON.parse(JSON.stringify(w.exercises));
+  workoutsState.editing = { id: w.id, name: w.name, exercises };
   workoutsState.view = 'session';
   workoutsState.sessionStartedAt = active.startedAt;
 }
@@ -1009,14 +1133,22 @@ function startWorkoutById(id) {
   if (!w) return;
   checkSessionExpiry();
   const existing = getActiveSession();
-  const startedAt = (existing && existing.workoutId === id) ? existing.startedAt : Date.now();
-  workoutsState.editing = w;
+  const resuming = existing && existing.workoutId === id;
+  const startedAt = resuming ? existing.startedAt : Date.now();
+  const exercises = resuming && Array.isArray(existing.exercises) ? existing.exercises : JSON.parse(JSON.stringify(w.exercises));
+  workoutsState.editing = { id: w.id, name: w.name, exercises };
   workoutsState.view = 'session';
   workoutsState.sessionStartedAt = startedAt;
-  saveActiveSession({ workoutId: id, startedAt });
+  saveActiveSession({ workoutId: id, startedAt, exercises });
   document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'workouts'));
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-workouts'));
   renderWorkoutsTab();
+}
+
+function persistSessionExercises() {
+  const active = getActiveSession();
+  if (!active || !workoutsState.editing) return;
+  saveActiveSession({ workoutId: active.workoutId, startedAt: active.startedAt, exercises: workoutsState.editing.exercises });
 }
 
 function stopSessionTimer() {
@@ -1304,8 +1436,9 @@ function renderSessionHtml() {
   let exercisesStarted = 0;
   let totalSetsToday = 0;
 
-  const cards = workout.exercises.map(ex => {
+  const cards = workout.exercises.map((ex, idx) => {
     const suggestion = progressionSuggestion(ex.name, ex.repMin, ex.repMax);
+    const lastSession = getLastSessionSets(ex.name);
     const todaysSets = getEntries()
       .filter(e => e.exercise === ex.name && e.date === todayStr())
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -1314,16 +1447,21 @@ function renderSessionHtml() {
     const setsHtml = todaysSets.length
       ? todaysSets.map((e, i) => `<span${i === todaysSets.length - 1 ? ' class="new-chip"' : ''}>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')
       : '<span style="opacity:.5">No sets logged yet today</span>';
+    const lastSessionHtml = lastSession
+      ? `<div class="session-sets"><span style="opacity:.6">Last session (${lastSession.date.slice(5)}):</span> ${lastSession.sets.map(e => `<span>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')}</div>`
+      : '';
     const badge = ex.repMin === ex.repMax ? `${ex.sets} × ${ex.repMin} reps` : `${ex.sets} × ${ex.repMin}–${ex.repMax} reps`;
 
     return `
-      <div class="card session-exercise" data-name="${escapeHtml(ex.name)}">
+      <div class="card session-exercise" data-name="${escapeHtml(ex.name)}" data-idx="${idx}">
         <div class="session-header">
           ${exerciseVisualHtml(ex.name)}
-          <div class="name">${escapeHtml(ex.name)}</div>
+          <div class="name" style="flex:1">${escapeHtml(ex.name)}</div>
+          <button class="remove-ex-btn" data-idx="${idx}">Remove</button>
         </div>
         <div class="rep-badge">Target: ${badge}</div>
         <div class="suggestion">${escapeHtml(suggestion.text)}</div>
+        ${lastSessionHtml}
         <div class="row">
           <div>
             <label>Weight</label>
@@ -1344,6 +1482,22 @@ function renderSessionHtml() {
     `;
   }).join('');
 
+  const lib = getLibrary();
+  const q = workoutsState.sessionSearch.trim().toLowerCase();
+  const matches = q ? lib.filter(i => i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q)) : lib;
+  const addExerciseHtml = workoutsState.sessionAddingExercise ? `
+    <input id="sessionExerciseSearch" placeholder="Search machines..." value="${escapeHtml(workoutsState.sessionSearch)}" style="margin-top:10px">
+    <div class="lib-search-results">
+      ${matches.slice(0, 40).map(i => `
+        <div class="lib-item">
+          ${exerciseVisualHtml(i.name)}
+          <div class="lib-item-main">${escapeHtml(i.name)}</div>
+          <div class="lib-item-actions"><button class="add-session-ex-btn" data-name="${escapeHtml(i.name)}">Add</button></div>
+        </div>
+      `).join('') || '<div class="empty">No matches.</div>'}
+    </div>
+  ` : '';
+
   return `
     <div class="card">
       <div class="stat-row" style="margin-top:0">
@@ -1351,9 +1505,14 @@ function renderSessionHtml() {
         <div class="stat"><div class="val">${exercisesStarted}/${workout.exercises.length}</div><div class="lbl">Exercises</div></div>
         <div class="stat"><div class="val">${totalSetsToday}</div><div class="lbl">Sets</div></div>
       </div>
+      <p style="color:var(--muted); font-size:12px; margin:10px 0 0">Tip: tap Log Set right after each set you finish — not all at once at the end.</p>
     </div>
     <button class="secondary" id="finishWorkoutBtn">Finish Workout</button>
     <div style="margin-top:16px">${cards}</div>
+    <div class="card">
+      <button class="secondary" id="toggleAddExerciseBtn">${workoutsState.sessionAddingExercise ? 'Cancel' : '+ Add Exercise to This Session'}</button>
+      ${addExerciseHtml}
+    </div>
   `;
 }
 
@@ -1364,6 +1523,8 @@ function wireSession() {
     workoutsState.view = 'list';
     workoutsState.editing = null;
     workoutsState.sessionStartedAt = null;
+    workoutsState.sessionAddingExercise = false;
+    workoutsState.sessionSearch = '';
     renderWorkoutsTab();
   });
   document.querySelectorAll('.session-exercise').forEach(card => {
@@ -1376,6 +1537,43 @@ function wireSession() {
       const entries = getEntries();
       entries.push({ id: makeId(), exercise: name, weight, reps, sets, date: todayStr(), unit: settings.unit });
       saveEntries(entries);
+      renderWorkoutsTab();
+    });
+    card.querySelector('.remove-ex-btn').addEventListener('click', () => {
+      const idx = parseInt(card.dataset.idx, 10);
+      if (!confirm(`Remove ${name} from today's session? This only affects today — the saved workout is unchanged.`)) return;
+      workoutsState.editing.exercises.splice(idx, 1);
+      persistSessionExercises();
+      renderWorkoutsTab();
+    });
+  });
+
+  document.getElementById('toggleAddExerciseBtn').addEventListener('click', () => {
+    workoutsState.sessionAddingExercise = !workoutsState.sessionAddingExercise;
+    workoutsState.sessionSearch = '';
+    renderWorkoutsTab();
+  });
+
+  const searchInput = document.getElementById('sessionExerciseSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      workoutsState.sessionSearch = e.target.value;
+      renderWorkoutsTab();
+      const el = document.getElementById('sessionExerciseSearch');
+      el.focus();
+      el.selectionStart = el.value.length;
+    });
+  }
+
+  document.querySelectorAll('.add-session-ex-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.name;
+      if (!workoutsState.editing.exercises.some(ex => ex.name === name)) {
+        workoutsState.editing.exercises.push({ name, sets: 3, repMin: 8, repMax: 12 });
+        persistSessionExercises();
+      }
+      workoutsState.sessionAddingExercise = false;
+      workoutsState.sessionSearch = '';
       renderWorkoutsTab();
     });
   });
@@ -1500,8 +1698,70 @@ function renderNutritionTodayList() {
 
 // --- Progress ---
 let progressMode = 'lifts';
+let liftsView = 'exercise';
+let workoutMetric = 'weight';
 let bodyMetric = 'weight';
 let nutriMetric = 'calories';
+
+document.querySelectorAll('#progressLifts .pill[data-liftsview]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#progressLifts .pill[data-liftsview]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    liftsView = btn.dataset.liftsview;
+    document.getElementById('liftsByExercise').style.display = liftsView === 'exercise' ? '' : 'none';
+    document.getElementById('liftsByWorkout').style.display = liftsView === 'workout' ? '' : 'none';
+    if (liftsView === 'exercise') renderProgress(); else renderLiftsByWorkout();
+  });
+});
+document.querySelectorAll('#progressLifts .pill[data-wmetric]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#progressLifts .pill[data-wmetric]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    workoutMetric = btn.dataset.wmetric;
+    renderLiftsByWorkout();
+  });
+});
+document.getElementById('progressWorkoutSelect').addEventListener('change', renderLiftsByWorkout);
+
+function renderLiftsByWorkout() {
+  const select = document.getElementById('progressWorkoutSelect');
+  const workouts = getWorkouts();
+  const prevValue = select.value;
+  select.innerHTML = workouts.map(w => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join('');
+  if (workouts.some(w => w.id === prevValue)) select.value = prevValue;
+  const workout = workouts.find(w => w.id === select.value);
+  const container = document.getElementById('workoutExerciseTrends');
+  if (!workout) { container.innerHTML = '<div class="empty">No workouts yet.</div>'; return; }
+
+  container.innerHTML = workout.exercises.map(ex => `
+    <div class="card" style="padding:12px">
+      <div class="session-header" style="margin-bottom:6px">
+        ${exerciseVisualHtml(ex.name)}
+        <div class="name" style="font-size:14px">${escapeHtml(ex.name)}</div>
+      </div>
+      <canvas class="mini-chart" data-exercise="${escapeHtml(ex.name)}"></canvas>
+      <div class="stat-row" style="margin-top:8px">
+        <div class="stat"><div class="val" style="font-size:14px" data-stat="best">-</div><div class="lbl">Best</div></div>
+        <div class="stat"><div class="val" style="font-size:14px" data-stat="last">-</div><div class="lbl">Last</div></div>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.mini-chart').forEach(canvas => {
+    const exercise = canvas.dataset.exercise;
+    const entries = getEntries()
+      .filter(e => e.exercise === exercise)
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    const valueOf = e => workoutMetric === 'reps' ? e.reps : workoutMetric === 'volume' ? e.weight * e.reps * e.sets : e.weight;
+    const points = entries.map(e => ({ date: e.date, value: valueOf(e) }));
+    drawChart(canvas, points);
+    const card = canvas.closest('.card');
+    const values = entries.map(valueOf);
+    card.querySelector('[data-stat="best"]').textContent = values.length ? Math.max(...values) : '-';
+    card.querySelector('[data-stat="last"]').textContent = values.length ? values[values.length - 1] : '-';
+  });
+}
 
 document.getElementById('progressModeGroup').querySelectorAll('.pill').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1516,7 +1776,7 @@ document.getElementById('progressModeGroup').querySelectorAll('.pill').forEach(b
 });
 
 function renderCurrentProgressMode() {
-  if (progressMode === 'lifts') renderProgress();
+  if (progressMode === 'lifts') { if (liftsView === 'exercise') renderProgress(); else renderLiftsByWorkout(); }
   else if (progressMode === 'body') renderBodyProgress();
   else renderNutritionProgress();
 }
