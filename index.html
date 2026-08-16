@@ -197,6 +197,7 @@
 
   .session-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .session-header .name { font-size: 17px; font-weight: 700; }
+  .session-photo { display: block; width: calc(100% + 32px); height: 190px; object-fit: cover; margin: -16px -16px 14px -16px; border-radius: 14px 14px 0 0; }
   .remove-ex-btn { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 12px; font-weight: 500; flex-shrink: 0; }
   .rep-badge { display: inline-block; background: #0e0e13; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 3px 8px; border-radius: 8px; margin-bottom: 10px; }
   .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
@@ -1380,14 +1381,15 @@ function renderSessionHtml() {
       : '';
     const badge = ex.repMin === ex.repMax ? `${ex.sets} × ${ex.repMin} reps` : `${ex.sets} × ${ex.repMin}–${ex.repMax} reps`;
     const libItem = getLibraryItemByName(ex.name);
-    const hasPhoto = libItem && photoCache[libItem.id];
+    const photoUrl = libItem && photoCache[libItem.id];
 
     return `
       <div class="card session-exercise" data-name="${escapeHtml(ex.name)}" data-idx="${idx}">
+        ${photoUrl ? `<img class="session-photo" src="${photoUrl}" alt="${escapeHtml(ex.name)}">` : ''}
         <div class="session-header">
-          ${exerciseVisualHtml(ex.name)}
+          ${photoUrl ? '' : exerciseVisualHtml(ex.name)}
           <div class="name" style="flex:1">${escapeHtml(ex.name)}</div>
-          ${libItem && photoSupport ? `<button class="photo-btn" data-id="${libItem.id}">${hasPhoto ? 'Remove Photo' : '+ Photo'}</button>` : ''}
+          ${libItem && photoSupport ? `<button class="photo-btn" data-id="${libItem.id}">${photoUrl ? 'Remove Photo' : '+ Photo'}</button>` : ''}
           <button class="remove-ex-btn" data-idx="${idx}">Remove</button>
         </div>
         <div class="rep-badge">Target: ${badge}</div>
