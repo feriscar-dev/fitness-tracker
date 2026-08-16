@@ -684,11 +684,6 @@ function mergeById(a, b) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function getLastEntryFor(exercise) {
-  const matches = getEntries().filter(e => e.exercise === exercise)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  return matches.length ? matches[matches.length - 1] : null;
-}
 function getLastSessionSets(exercise) {
   const entries = getEntries().filter(e => e.exercise === exercise && e.date !== todayStr());
   if (!entries.length) return null;
@@ -1334,20 +1329,34 @@ document.getElementById('photoFileInput').addEventListener('change', async (e) =
 });
 
 function progressionSuggestion(name, repMin, repMax) {
-  const last = getLastEntryFor(name);
-  if (!last) {
-    return { text: `No history yet — pick a weight you can do for ${repMin} reps.`, weight: '', reps: repMin };
-  }
-  if (last.reps < repMax) {
+  const lastSession = getLastSessionSets(name);
+  if (lastSession && lastSession.sets.length) {
+    const weight = lastSession.sets[lastSession.sets.length - 1].weight;
+    const unit = lastSession.sets[0].unit || 'lb';
+    const minReps = Math.min(...lastSession.sets.map(s => s.reps));
+    if (minReps >= repMax) {
+      return {
+        text: `Last session you hit ${repMax}+ reps on every set — increase the weight and restart at ${repMin} reps.`,
+        weight, reps: repMin
+      };
+    }
+    const targetReps = Math.min(repMax, minReps + 1);
     return {
-      text: `Last time: ${last.weight}${last.unit || 'lb'} × ${last.reps}. Today's target: ${last.weight}${last.unit || 'lb'} × ${last.reps + 1}.`,
-      weight: last.weight, reps: last.reps + 1
+      text: `Last session (${lastSession.date.slice(5)}): ${weight}${unit} × ${lastSession.sets.map(s => s.reps).join('/')}. Today's target: ${weight}${unit} × ${targetReps} — same for every set this session.`,
+      weight, reps: targetReps
     };
   }
-  return {
-    text: `You hit ${repMax} reps last time — increase the weight and reset to ${repMin} reps.`,
-    weight: last.weight, reps: repMin
-  };
+  const todaySoFar = getEntries()
+    .filter(e => e.exercise === name && e.date === todayStr())
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (todaySoFar.length) {
+    const first = todaySoFar[0];
+    return {
+      text: `Matching your first set today: ${first.weight}${first.unit || 'lb'} × ${first.reps} — same for every set this session.`,
+      weight: first.weight, reps: first.reps
+    };
+  }
+  return { text: `No history yet — pick a weight you can do for ${repMin} reps, and repeat it for every set today.`, weight: '', reps: repMin };
 }
 
 function renderSessionHtml() {
