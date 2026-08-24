@@ -210,6 +210,10 @@
   .stepper button { width: 44px; height: 44px; border-radius: 50%; background: #23232c; color: var(--text); font-size: 20px; padding: 0; }
   .stepper span { font-size: 20px; font-weight: 700; min-width: 24px; text-align: center; }
 
+  .cat-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; margin: 0 8px 8px 0; }
+  .cat-chip svg { width: 16px; height: 16px; }
+  .pr-badge { display: inline-block; background: #3a2e05; color: #ffd43b; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; margin-left: 6px; vertical-align: middle; }
+  .cal-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .guardrail-warn { color: var(--danger); font-size: 13px; }
   .guardrail-ok { color: var(--good); font-size: 13px; }
   .totals-row { display: flex; justify-content: space-between; font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -974,7 +978,7 @@ function renderTodayNutritionSummary() {
 }
 
 // --- Workouts ---
-let workoutsState = { view: 'list', editing: null, search: '', sessionStartedAt: null, sessionAddingExercise: false, sessionSearch: '' };
+let workoutsState = { view: 'list', editing: null, search: '', sessionStartedAt: null, sessionAddingExercise: false, sessionSearch: '', summary: null };
 let sessionTimerHandle = null;
 
 function checkSessionExpiry() {
@@ -1121,6 +1125,10 @@ function renderWorkoutsTab() {
     wireSession();
     tickSessionTimer();
     sessionTimerHandle = setInterval(tickSessionTimer, 1000);
+  } else if (workoutsState.view === 'summary') {
+    title.textContent = 'Workout Summary';
+    root.innerHTML = renderSummaryHtml();
+    wireSummaryScreen();
   }
 }
 
@@ -1452,9 +1460,11 @@ function renderSessionHtml() {
 function wireSession() {
   wirePhotoButtons();
   document.getElementById('finishWorkoutBtn').addEventListener('click', () => {
+    const summary = computeWorkoutSummary(workoutsState.editing.exercises, workoutsState.sessionStartedAt);
     stopSessionTimer();
     clearActiveSession();
-    workoutsState.view = 'list';
+    workoutsState.summary = summary;
+    workoutsState.view = 'summary';
     workoutsState.editing = null;
     workoutsState.sessionStartedAt = null;
     workoutsState.sessionAddingExercise = false;
@@ -1510,6 +1520,99 @@ function wireSession() {
       workoutsState.sessionSearch = '';
       renderWorkoutsTab();
     });
+  });
+}
+
+function computeWorkoutSummary(exercises, startedAt) {
+  const names = exercises.map(ex => ex.name);
+  const allEntries = getEntries();
+  const todayEntries = allEntries.filter(e => e.date === todayStr() && names.includes(e.exercise));
+  const durationMs = startedAt ? Date.now() - startedAt : 0;
+
+  const totalSets = todayEntries.reduce((sum, e) => sum + (e.sets || 0), 0);
+  const totalVolume = todayEntries.reduce((sum, e) => sum + (e.weight || 0) * (e.reps || 0) * (e.sets || 0), 0);
+
+  const muscleGroups = [...new Set(todayEntries.map(e => {
+    const item = getLibraryItemByName(e.exercise);
+    return item ? item.category : 'Custom';
+  }))];
+
+  const exerciseBreakdown = [...new Set(todayEntries.map(e => e.exercise))].map(name => {
+    const sets = todayEntries.filter(e => e.exercise === name);
+    const setsCount = sets.reduce((sum, e) => sum + (e.sets || 0), 0);
+    const topEntry = sets.reduce((top, e) => (!top || e.weight > top.weight ? e : top), null);
+    const priorEntries = allEntries.filter(e => e.exercise === name && e.date !== todayStr() && (e.unit || 'lb') === settings.unit);
+    const priorMax = priorEntries.length ? Math.max(...priorEntries.map(e => e.weight || 0)) : null;
+    const isPR = priorMax != null && topEntry.weight > priorMax;
+    const item = getLibraryItemByName(name);
+    return { name, category: item ? item.category : 'Custom', setsCount, topWeight: topEntry.weight, topReps: topEntry.reps, isPR };
+  });
+
+  const bodyEntries = getBodyMeasurements().slice().sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const latestWeightLb = bodyEntries.length ? bodyEntries[bodyEntries.length - 1].weight : null;
+  let calories = null;
+  if (latestWeightLb != null && durationMs > 0) {
+    const kg = latestWeightLb * 0.453592;
+    const MET = 5.0;
+    const minutes = durationMs / 60000;
+    calories = Math.round(MET * 3.5 * kg / 200 * minutes);
+  }
+
+  return { durationMs, totalSets, totalVolume, muscleGroups, exerciseBreakdown, calories };
+}
+
+function categoryChipHtml(category) {
+  const color = CATEGORY_COLORS[category] || CATEGORY_COLORS.Custom;
+  return `<span class="cat-chip" style="background:${color}33; color:${color}">${categoryIconSvg(category)}${escapeHtml(category)}</span>`;
+}
+
+function renderSummaryHtml() {
+  const s = workoutsState.summary;
+  if (!s) return '<div class="empty">No summary available.</div>';
+
+  const muscleGroupsHtml = s.muscleGroups.length
+    ? s.muscleGroups.map(categoryChipHtml).join('')
+    : '<div class="empty">No sets logged.</div>';
+
+  const breakdownHtml = s.exerciseBreakdown.length
+    ? s.exerciseBreakdown.map(ex => `
+        <div class="entry">
+          ${exerciseVisualHtml(ex.name)}
+          <div class="info">
+            <div class="name">${escapeHtml(ex.name)}${ex.isPR ? '<span class="pr-badge">🏆 PR</span>' : ''}</div>
+            <div class="meta">${ex.setsCount} set${ex.setsCount === 1 ? '' : 's'} · top ${ex.topWeight}${settings.unit} × ${ex.topReps}</div>
+          </div>
+        </div>
+      `).join('')
+    : '<div class="empty">No sets logged this session.</div>';
+
+  return `
+    <div class="card">
+      <div class="stat-row" style="margin-top:0">
+        <div class="stat"><div class="val">${formatElapsed(s.durationMs)}</div><div class="lbl">Duration</div></div>
+        <div class="stat"><div class="val">${s.calories != null ? s.calories : '–'}</div><div class="lbl">Calories (est.)</div></div>
+        <div class="stat"><div class="val">${s.totalSets}</div><div class="lbl">Sets</div></div>
+        <div class="stat"><div class="val">${Math.round(s.totalVolume).toLocaleString()}</div><div class="lbl">Volume (${settings.unit})</div></div>
+      </div>
+      ${s.calories == null ? '<div class="cal-note">Log a body weight entry on the Progress tab to see a calorie estimate next time.</div>' : ''}
+    </div>
+    <div class="card">
+      <p class="section-title">Muscle Groups</p>
+      ${muscleGroupsHtml}
+    </div>
+    <div class="card">
+      <p class="section-title">Exercises</p>
+      ${breakdownHtml}
+    </div>
+    <button class="primary" id="summaryDoneBtn">Done</button>
+  `;
+}
+
+function wireSummaryScreen() {
+  document.getElementById('summaryDoneBtn').addEventListener('click', () => {
+    workoutsState.summary = null;
+    workoutsState.view = 'list';
+    renderWorkoutsTab();
   });
 }
 
