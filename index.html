@@ -115,6 +115,11 @@
   .stat { flex: 1; text-align: center; }
   .stat .val { font-size: 20px; font-weight: 700; }
   .stat .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .muscle-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; }
+  .muscle-tile { text-align: center; }
+  .muscle-dot { width: 40px; height: 40px; border-radius: 50%; margin: 0 auto 6px; }
+  .muscle-name { font-size: 13px; font-weight: 600; }
+  .muscle-status { font-size: 11px; color: var(--muted); margin-top: 2px; }
   nav {
     display: flex;
     border-top: 1px solid var(--border);
@@ -242,6 +247,8 @@
       <p class="section-title">Today's Workout</p>
       <button class="primary" id="startTodayWorkoutBtn" style="margin-top:0"></button>
     </div>
+
+    <div class="card" id="muscleRecoveryCard"></div>
 
     <div class="card">
       <p class="section-title">Quick Log a Set</p>
@@ -964,6 +971,60 @@ function renderTodayWorkoutCard() {
     btn.textContent = `Start ${workout.name}`;
   }
   btn.onclick = () => startWorkoutById(workout.id);
+}
+
+const MUSCLE_RECOVERY_HOURS = { Chest: 72, Back: 72, Legs: 72, Shoulders: 48, Arms: 48, Core: 48 };
+const MUSCLE_CATEGORIES_DISPLAY = ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms', 'Core'];
+
+function computeMuscleRecovery() {
+  const entries = getEntries();
+  const now = Date.now();
+  return MUSCLE_CATEGORIES_DISPLAY.map(category => {
+    const catEntries = entries.filter(e => {
+      const item = getLibraryItemByName(e.exercise);
+      return (item ? item.category : 'Custom') === category;
+    });
+    if (!catEntries.length) {
+      return { category, pct: 1, statusText: 'Not yet trained' };
+    }
+    const lastDate = catEntries.reduce((max, e) => (e.date > max ? e.date : max), catEntries[0].date);
+    const daysSince = Math.max(0, Math.floor((now - new Date(lastDate + 'T00:00:00').getTime()) / 86400000));
+    const recoveryHours = MUSCLE_RECOVERY_HOURS[category] || 48;
+    const pct = Math.max(0, Math.min(1, (daysSince * 24) / recoveryHours));
+    const statusText = daysSince === 0 ? 'Trained today' : pct >= 1 ? 'Recovered' : `${daysSince} day${daysSince === 1 ? '' : 's'} ago`;
+    return { category, pct, statusText };
+  });
+}
+
+function recoveryColor(pct) {
+  const stops = [[0, [255, 69, 58]], [0.5, [255, 159, 10]], [1, [90, 90, 100]]];
+  pct = Math.max(0, Math.min(1, pct));
+  let lo = stops[0], hi = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (pct >= stops[i][0] && pct <= stops[i + 1][0]) { lo = stops[i]; hi = stops[i + 1]; break; }
+  }
+  const span = (hi[0] - lo[0]) || 1;
+  const t = (pct - lo[0]) / span;
+  const rgb = lo[1].map((c, i) => Math.round(c + (hi[1][i] - c) * t));
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
+function renderMuscleRecoveryCard() {
+  const card = document.getElementById('muscleRecoveryCard');
+  const data = computeMuscleRecovery();
+  card.innerHTML = `
+    <p class="section-title">Muscle Recovery</p>
+    <div class="muscle-grid">
+      ${data.map(m => `
+        <div class="muscle-tile">
+          <div class="muscle-dot" style="background:${recoveryColor(m.pct)}"></div>
+          <div class="muscle-name">${escapeHtml(m.category)}</div>
+          <div class="muscle-status">${escapeHtml(m.statusText)}</div>
+        </div>
+      `).join('')}
+    </div>
+    <p style="color:var(--muted); font-size:11px; margin-top:10px; text-align:center">Estimated from days since last trained vs. a typical 48–72h recovery window — a general estimate, not a measurement of actual fatigue.</p>
+  `;
 }
 
 function renderStepsPsyllium() {
@@ -2413,6 +2474,7 @@ function renderAll() {
   renderExerciseList();
   renderRecent();
   renderTodayWorkoutCard();
+  renderMuscleRecoveryCard();
   renderTodayNutritionSummary();
   renderStepsPsyllium();
   renderDataCounts();
