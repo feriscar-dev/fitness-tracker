@@ -199,7 +199,14 @@
   .session-header .name { font-size: 17px; font-weight: 700; }
   .session-photo { display: block; width: calc(100% + 32px); height: 190px; object-fit: cover; margin: -16px -16px 14px -16px; border-radius: 14px 14px 0 0; }
   .remove-ex-btn { background: transparent; color: var(--danger); padding: 4px 8px; font-size: 12px; font-weight: 500; flex-shrink: 0; }
-  .rep-badge { display: inline-block; background: #0e0e13; border: 1px solid var(--border); color: var(--muted); font-size: 12px; padding: 3px 8px; border-radius: 8px; margin-bottom: 10px; }
+  .goal-block { margin-bottom: 10px; }
+  .goal-text { font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 6px; }
+  .goal-rep-target { color: var(--muted); font-weight: 400; }
+  .goal-bar { height: 8px; background: #0e0e13; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .goal-bar-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+  .session-exercise.session-complete { border-color: var(--good); background: rgba(48, 209, 88, 0.07); }
+  .session-exercise.session-complete .goal-text { color: var(--good); }
+  .session-exercise.session-complete .goal-bar-fill { background: var(--good); }
   .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
   .session-sets { margin-top: 10px; font-size: 13px; color: var(--muted); }
   .session-sets span { display: inline-block; background: #0e0e13; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; margin: 3px 4px 0 0; }
@@ -429,7 +436,7 @@
       <button class="secondary" id="exportBtn">Export Backup</button>
       <button class="secondary" id="importBtn" style="margin-top:10px">Import Backup</button>
       <input type="file" id="importFile" accept="application/json" style="display:none">
-      <p style="color:var(--muted); font-size:12px; margin-top:10px">Exercise photos are stored on this device only and are not included in backups.</p>
+      <p style="color:var(--muted); font-size:12px; margin-top:10px">Backups include exercise photos — files may be a few MB if you've added several.</p>
     </div>
 
     <div class="card">
@@ -1370,7 +1377,7 @@ function progressionSuggestion(name, repMin, repMax) {
 
 function renderSessionHtml() {
   const workout = workoutsState.editing;
-  let exercisesStarted = 0;
+  let exercisesCompleted = 0;
   let totalSetsToday = 0;
 
   const cards = workout.exercises.map((ex, idx) => {
@@ -1379,7 +1386,8 @@ function renderSessionHtml() {
     const todaysSets = getEntries()
       .filter(e => e.exercise === ex.name && e.date === todayStr())
       .sort((a, b) => a.id.localeCompare(b.id));
-    if (todaysSets.length) exercisesStarted++;
+    const isComplete = todaysSets.length >= ex.sets;
+    if (isComplete) exercisesCompleted++;
     totalSetsToday += todaysSets.length;
     const setsHtml = todaysSets.length
       ? todaysSets.map((e, i) => `<span${i === todaysSets.length - 1 ? ' class="new-chip"' : ''}>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')
@@ -1387,12 +1395,13 @@ function renderSessionHtml() {
     const lastSessionHtml = lastSession
       ? `<div class="session-sets"><span style="opacity:.6">Last session (${lastSession.date.slice(5)}):</span> ${lastSession.sets.map(e => `<span>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')}</div>`
       : '';
-    const badge = ex.repMin === ex.repMax ? `${ex.sets} × ${ex.repMin} reps` : `${ex.sets} × ${ex.repMin}–${ex.repMax} reps`;
+    const repText = ex.repMin === ex.repMax ? `${ex.repMin}` : `${ex.repMin}–${ex.repMax}`;
+    const pct = Math.min(100, Math.round((todaysSets.length / ex.sets) * 100));
     const libItem = getLibraryItemByName(ex.name);
     const photoUrl = libItem && photoCache[libItem.id];
 
     return `
-      <div class="card session-exercise" data-name="${escapeHtml(ex.name)}" data-idx="${idx}">
+      <div class="card session-exercise${isComplete ? ' session-complete' : ''}" data-name="${escapeHtml(ex.name)}" data-idx="${idx}">
         ${photoUrl ? `<img class="session-photo" src="${photoUrl}" alt="${escapeHtml(ex.name)}">` : ''}
         <div class="session-header">
           ${photoUrl ? '' : exerciseVisualHtml(ex.name)}
@@ -1400,7 +1409,10 @@ function renderSessionHtml() {
           ${libItem && photoSupport ? `<button class="photo-btn" data-id="${libItem.id}">${photoUrl ? 'Remove Photo' : '+ Photo'}</button>` : ''}
           <button class="remove-ex-btn" data-idx="${idx}">Remove</button>
         </div>
-        <div class="rep-badge">Target: ${badge}</div>
+        <div class="goal-block">
+          <div class="goal-text">${isComplete ? '✓ Goal complete — ' : ''}${todaysSets.length} of ${ex.sets} sets logged<span class="goal-rep-target"> · goal ${repText} reps each</span></div>
+          <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%"></div></div>
+        </div>
         <div class="suggestion">${escapeHtml(suggestion.text)}</div>
         ${lastSessionHtml}
         <div class="row">
@@ -1443,7 +1455,7 @@ function renderSessionHtml() {
     <div class="card">
       <div class="stat-row" style="margin-top:0">
         <div class="stat"><div class="val" id="sessionTimer">0:00:00</div><div class="lbl">Elapsed</div></div>
-        <div class="stat"><div class="val">${exercisesStarted}/${workout.exercises.length}</div><div class="lbl">Exercises</div></div>
+        <div class="stat"><div class="val">${exercisesCompleted}/${workout.exercises.length}</div><div class="lbl">Completed</div></div>
         <div class="stat"><div class="val">${totalSetsToday}</div><div class="lbl">Sets</div></div>
       </div>
       <p style="color:var(--muted); font-size:12px; margin:10px 0 0">Tip: tap Log Set right after each set you finish — not all at once at the end.</p>
@@ -2019,7 +2031,8 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
     mealLibrary: getMealLibrary(),
     nutritionEntries: getNutritionEntries(),
     dailyLog: getAllDailyLogs(),
-    nutritionTargets: getNutritionTargets()
+    nutritionTargets: getNutritionTargets(),
+    photos: photoCache
   };
   const dataStr = JSON.stringify(payload, null, 2);
   const filename = `rep-tracker-backup-${todayStr()}.json`;
@@ -2086,11 +2099,17 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
       if (imported.nutritionTargets && typeof imported.nutritionTargets === 'object') {
         saveNutritionTargets(Object.assign({}, getNutritionTargets(), imported.nutritionTargets));
       }
+      if (imported.photos && typeof imported.photos === 'object') {
+        for (const [id, dataUrl] of Object.entries(imported.photos)) {
+          await savePhoto(id, dataUrl);
+        }
+      }
     } else {
       throw new Error('File does not contain a valid backup');
     }
     renderAll();
     loadTargetsIntoForm();
+    if (document.getElementById('tab-workouts').classList.contains('active')) renderWorkoutsTab();
     alert('Import complete.');
   } catch (err) {
     alert('Could not import file: ' + err.message);

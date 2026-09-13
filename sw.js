@@ -1,4 +1,4 @@
-const CACHE = 'rep-tracker-v9';
+const CACHE = 'rep-tracker-v10';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
