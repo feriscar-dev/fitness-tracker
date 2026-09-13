@@ -169,6 +169,7 @@
   .lib-item:last-child { border-bottom: none; }
   .lib-item-main { flex: 1; min-width: 0; }
   .lib-item .cat { font-size: 11px; color: var(--muted); }
+  .cat-select { width: auto; padding: 2px 6px; margin-top: 2px; font-size: 11px; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 6px; }
   .lib-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .lib-item-actions button { padding: 6px 10px; font-size: 12px; }
   .add-ex-btn { background: var(--accent); color: #fff; }
@@ -615,6 +616,13 @@ function addCustomToLibrary(name) {
 }
 function getLibraryItemByName(name) {
   return getLibrary().find(i => i.name.toLowerCase() === name.toLowerCase()) || null;
+}
+function updateLibraryCategory(id, category) {
+  const lib = getLibrary();
+  const item = lib.find(i => i.id === id);
+  if (!item) return;
+  item.category = category;
+  saveLibrary(lib);
 }
 function getWorkouts() {
   try {
@@ -1217,7 +1225,12 @@ function renderBuilderHtml() {
   const resultsHtml = matches.length ? matches.slice(0, 40).map(i => `
     <div class="lib-item">
       ${exerciseVisualHtml(i.name)}
-      <div class="lib-item-main"><div>${escapeHtml(i.name)}</div><div class="cat">${escapeHtml(i.category)}</div></div>
+      <div class="lib-item-main">
+        <div>${escapeHtml(i.name)}</div>
+        <select class="cat-select" data-id="${i.id}">
+          ${Object.keys(CATEGORY_COLORS).map(c => `<option value="${c}"${c === i.category ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </div>
       <div class="lib-item-actions">
         <button class="add-ex-btn" data-name="${escapeHtml(i.name)}">Add</button>
         ${photoSupport ? `<button class="photo-btn" data-id="${i.id}">${photoCache[i.id] ? 'Remove Photo' : 'Photo'}</button>` : ''}
@@ -1283,6 +1296,13 @@ function wireBuilder() {
   });
 
   wirePhotoButtons();
+
+  document.querySelectorAll('.cat-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      updateLibraryCategory(sel.dataset.id, sel.value);
+      renderWorkoutsTab();
+    });
+  });
 
   const addCustomBtn = document.getElementById('addCustomBtn');
   if (workoutsState.search.trim()) {
