@@ -1837,9 +1837,64 @@ function renderAdherenceCard(adherence) {
   `;
 }
 
+function computeCategoryCounts(workout) {
+  const counts = {};
+  workout.exercises.forEach(ex => {
+    const item = getLibraryItemByName(ex.name);
+    const category = item ? item.category : 'Custom';
+    counts[category] = (counts[category] || 0) + 1;
+  });
+  return counts;
+}
+
+function computeUnusedExercises(minSessions = 3) {
+  const adherenceAllTime = computeAdherence(3650);
+  const sessionsById = Object.fromEntries(adherenceAllTime.map(a => [a.id, a.sessionsCount]));
+  const entries = getEntries();
+  const results = [];
+  getWorkouts().forEach(w => {
+    if ((sessionsById[w.id] || 0) < minSessions) return;
+    const counts = computeCategoryCounts(w);
+    const total = w.exercises.length;
+    w.exercises.forEach(ex => {
+      const timesLogged = entries.filter(e => e.exercise === ex.name).length;
+      if (timesLogged === 0) {
+        const item = getLibraryItemByName(ex.name);
+        const category = item ? item.category : 'Custom';
+        const isClustered = counts[category] >= 2 && (counts[category] / total) >= 0.4;
+        results.push({ workoutId: w.id, workoutName: w.name, exerciseName: ex.name, category, isClustered, sessions: sessionsById[w.id] });
+      }
+    });
+  });
+  return results;
+}
+
+function computeCategoryClustering() {
+  const results = [];
+  getWorkouts().forEach(w => {
+    const counts = computeCategoryCounts(w);
+    const total = w.exercises.length;
+    Object.entries(counts).forEach(([category, count]) => {
+      if (count >= 2 && (count / total) >= 0.4) {
+        results.push({ workoutId: w.id, workoutName: w.name, category, count, total });
+      }
+    });
+  });
+  return results;
+}
+
+function removeExerciseFromWorkout(workoutId, exerciseName) {
+  const workouts = getWorkouts();
+  const w = workouts.find(x => x.id === workoutId);
+  if (!w) return;
+  w.exercises = w.exercises.filter(ex => ex.name !== exerciseName);
+  saveWorkouts(workouts);
+}
+
 function renderRecommendationCards(distribution, adherence) {
   const container = document.getElementById('recommendationsCards');
   const goal = settings.goal;
+  const allWorkoutIds = getWorkouts().map(w => w.id);
   const cards = [];
 
   const majorTotals = MAJOR_CATEGORIES.map(c => ({ category: c, sets: distribution[c] || 0 }));
@@ -1853,14 +1908,16 @@ function renderRecommendationCards(distribution, adherence) {
       cards.push({
         title: 'Distribution note (lower priority for your goal)',
         body: `${names} ${lowCategories.length === 1 ? 'gets' : 'get'} noticeably less volume than ${topCategory.category} (${topCategory.sets} sets). Since your focus is weight loss, consistency and your calorie deficit matter more than this — but worth knowing if you'd also like to build muscle there.`,
-        fixCategory: lowCategories[0].category
+        fixCategory: lowCategories[0].category,
+        fixWorkoutIds: allWorkoutIds
       });
     } else {
       lowCategories.forEach(c => {
         cards.push({
           title: `${c.category} volume is low`,
           body: `${c.category} gets ${c.sets} set${c.sets === 1 ? '' : 's'} across your routine, vs ${topCategory.sets} for ${topCategory.category}. Consider adding an exercise if growing ${c.category.toLowerCase()} matters to you.`,
-          fixCategory: c.category
+          fixCategory: c.category,
+          fixWorkoutIds: allWorkoutIds
         });
       });
     }
@@ -1877,6 +1934,26 @@ function renderRecommendationCards(distribution, adherence) {
     }
   });
 
+  computeUnusedExercises().forEach(u => {
+    const clusterNote = u.isClustered ? ` ${u.workoutName} already leans heavily on ${u.category} — worth picking a different muscle group this time.` : '';
+    cards.push({
+      title: `${u.exerciseName} might not be working for you`,
+      body: `No sets logged for ${u.exerciseName} across ${u.sessions} sessions of ${u.workoutName}. If it's not available at your gym or just isn't clicking, swap it out.${clusterNote}`,
+      removeAction: { workoutId: u.workoutId, workoutName: u.workoutName, exerciseName: u.exerciseName },
+      fixCategory: u.isClustered ? '' : u.category,
+      fixWorkoutIds: [u.workoutId]
+    });
+  });
+
+  computeCategoryClustering().forEach(c => {
+    cards.push({
+      title: `${c.workoutName} leans heavily on ${c.category}`,
+      body: `${c.count} of ${c.total} exercises in ${c.workoutName} target ${c.category}. Swapping one for a different muscle group could give you better balance.`,
+      fixCategory: '',
+      fixWorkoutIds: [c.workoutId]
+    });
+  });
+
   if (!cards.length) {
     container.innerHTML = '<div class="card"><p class="section-title">Recommendations</p><div class="empty">Nothing stands out right now — your routine looks reasonably balanced.</div></div>';
     return;
@@ -1887,7 +1964,13 @@ function renderRecommendationCards(distribution, adherence) {
       <p class="section-title">${escapeHtml(c.title)}</p>
       <p style="font-size:14px; line-height:1.5">${escapeHtml(c.body)}</p>
       <div class="pill-group" style="margin-top:12px">
-        ${c.fixCategory ? getWorkouts().map(w => `<button type="button" class="pill fix-add-btn" data-workout-id="${w.id}" data-search="${escapeHtml(c.fixCategory)}">+ Add to ${escapeHtml(w.name)}</button>`).join('') : ''}
+        ${c.removeAction ? `<button type="button" class="pill remove-unused-btn" data-workout-id="${c.removeAction.workoutId}" data-workout-name="${escapeHtml(c.removeAction.workoutName)}" data-exercise="${escapeHtml(c.removeAction.exerciseName)}">Remove from ${escapeHtml(c.removeAction.workoutName)}</button>` : ''}
+        ${(c.fixWorkoutIds || []).map(id => {
+          const w = getWorkouts().find(x => x.id === id);
+          if (!w) return '';
+          const label = c.removeAction ? 'Find a Replacement' : `+ Add to ${escapeHtml(w.name)}`;
+          return `<button type="button" class="pill fix-add-btn" data-workout-id="${w.id}" data-search="${escapeHtml(c.fixCategory || '')}">${label}</button>`;
+        }).join('')}
         ${c.startWorkoutId ? `<button type="button" class="pill start-fix-btn" data-workout-id="${c.startWorkoutId}">Start ${escapeHtml(getWorkouts().find(w => w.id === c.startWorkoutId).name)} now</button>` : ''}
       </div>
     </div>
@@ -1898,6 +1981,13 @@ function renderRecommendationCards(distribution, adherence) {
   });
   container.querySelectorAll('.start-fix-btn').forEach(btn => {
     btn.addEventListener('click', () => startWorkoutById(btn.dataset.workoutId));
+  });
+  container.querySelectorAll('.remove-unused-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!confirm(`Remove ${btn.dataset.exercise} from ${btn.dataset.workoutName}? Your logged history isn't affected.`)) return;
+      removeExerciseFromWorkout(btn.dataset.workoutId, btn.dataset.exercise);
+      renderInsightsTab();
+    });
   });
 }
 
