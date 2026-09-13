@@ -404,6 +404,21 @@
     </div>
   </section>
 
+  <section id="tab-insights" class="tab">
+    <div class="card">
+      <label>Goal</label>
+      <div class="pill-group">
+        <button type="button" class="pill" data-goal="lose">Lose Weight</button>
+        <button type="button" class="pill" data-goal="muscle">Build Muscle</button>
+        <button type="button" class="pill active" data-goal="both">Both</button>
+      </div>
+    </div>
+    <div class="card" id="distributionCard"></div>
+    <div class="card" id="adherenceCard"></div>
+    <div id="recommendationsCards"></div>
+    <p style="color:var(--muted); font-size:12px; text-align:center; padding:0 8px">Counts each exercise toward its primary muscle category only — compound lifts also stimulate secondary muscles not reflected here. General guidance, not personalized training or medical advice.</p>
+  </section>
+
   <section id="tab-data" class="tab">
     <div class="card">
       <label>Units</label>
@@ -456,6 +471,7 @@
   <button class="navbtn" data-tab="workouts">Workouts</button>
   <button class="navbtn" data-tab="nutrition">Nutrition</button>
   <button class="navbtn" data-tab="progress">Progress</button>
+  <button class="navbtn" data-tab="insights">Insights</button>
   <button class="navbtn" data-tab="data">Data</button>
 </nav>
 
@@ -570,8 +586,8 @@ function saveEntries(entries) {
   localStorage.setItem(STORE_KEY, JSON.stringify(entries));
 }
 function getSettings() {
-  try { return Object.assign({ unit: 'lb', metric: 'weight' }, JSON.parse(localStorage.getItem(SETTINGS_KEY))); }
-  catch { return { unit: 'lb', metric: 'weight' }; }
+  try { return Object.assign({ unit: 'lb', metric: 'weight', goal: 'both' }, JSON.parse(localStorage.getItem(SETTINGS_KEY))); }
+  catch { return { unit: 'lb', metric: 'weight', goal: 'both' }; }
 }
 function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
@@ -846,6 +862,7 @@ document.querySelectorAll('.navbtn').forEach(btn => {
     if (btn.dataset.tab === 'progress') renderCurrentProgressMode();
     if (btn.dataset.tab === 'workouts') { checkSessionExpiry(); renderWorkoutsTab(); }
     if (btn.dataset.tab === 'nutrition') renderNutritionTab();
+    if (btn.dataset.tab === 'insights') renderInsightsTab();
   });
 });
 
@@ -1082,6 +1099,17 @@ function startWorkoutById(id) {
   renderWorkoutsTab();
 }
 
+function openWorkoutBuilder(id, prefillSearch) {
+  const w = getWorkouts().find(x => x.id === id);
+  if (!w) return;
+  workoutsState.editing = JSON.parse(JSON.stringify(w));
+  workoutsState.search = prefillSearch || '';
+  workoutsState.view = 'builder';
+  document.querySelectorAll('.navbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === 'workouts'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-workouts'));
+  renderWorkoutsTab();
+}
+
 function persistSessionExercises() {
   const active = getActiveSession();
   if (!active || !workoutsState.editing) return;
@@ -1171,13 +1199,7 @@ function wireWorkoutsList() {
   document.querySelectorAll('.workout-card').forEach(card => {
     const id = card.dataset.id;
     card.querySelector('[data-action="start"]').addEventListener('click', () => startWorkoutById(id));
-    card.querySelector('[data-action="edit"]').addEventListener('click', () => {
-      const w = getWorkouts().find(x => x.id === id);
-      workoutsState.editing = JSON.parse(JSON.stringify(w));
-      workoutsState.search = '';
-      workoutsState.view = 'builder';
-      renderWorkoutsTab();
-    });
+    card.querySelector('[data-action="edit"]').addEventListener('click', () => openWorkoutBuilder(id));
     card.querySelector('[data-action="del"]').addEventListener('click', () => {
       if (!confirm('Delete this workout? Your logged history is not affected.')) return;
       saveWorkouts(getWorkouts().filter(x => x.id !== id));
@@ -1743,6 +1765,149 @@ function renderNutritionTodayList() {
       renderNutritionTab();
     });
   });
+}
+
+// --- Insights ---
+const MAJOR_CATEGORIES = ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms'];
+
+document.querySelectorAll('#tab-insights .pill[data-goal]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    settings.goal = btn.dataset.goal;
+    saveSettings(settings);
+    renderInsightsTab();
+  });
+});
+
+function computeCategoryDistribution() {
+  const totals = {};
+  getWorkouts().forEach(w => {
+    w.exercises.forEach(ex => {
+      const item = getLibraryItemByName(ex.name);
+      const category = item ? item.category : 'Custom';
+      totals[category] = (totals[category] || 0) + (ex.sets || 0);
+    });
+  });
+  return totals;
+}
+
+function computeAdherence(lookbackDays = 30) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - lookbackDays);
+  const p = n => String(n).padStart(2, '0');
+  const cutoffStr = `${cutoff.getFullYear()}-${p(cutoff.getMonth() + 1)}-${p(cutoff.getDate())}`;
+  const entries = getEntries();
+  return getWorkouts().map(w => {
+    const names = w.exercises.map(ex => ex.name);
+    const dates = new Set(entries.filter(e => names.includes(e.exercise) && e.date >= cutoffStr).map(e => e.date));
+    return { id: w.id, name: w.name, sessionsCount: dates.size };
+  });
+}
+
+function renderDistributionCard(distribution) {
+  const card = document.getElementById('distributionCard');
+  const maxSets = Math.max(1, ...MAJOR_CATEGORIES.map(c => distribution[c] || 0));
+  card.innerHTML = `
+    <p class="section-title">Weekly Set Distribution</p>
+    <p style="color:var(--muted); font-size:12px; margin-bottom:10px">Sets programmed per muscle group across your saved workouts.</p>
+    ${MAJOR_CATEGORIES.map(cat => {
+      const sets = distribution[cat] || 0;
+      const color = CATEGORY_COLORS[cat] || CATEGORY_COLORS.Custom;
+      const pct = Math.round((sets / maxSets) * 100);
+      return `
+        <div style="margin-bottom:10px">
+          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px"><span>${cat}</span><span style="color:var(--muted)">${sets} sets</span></div>
+          <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%; background:${color}"></div></div>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+function renderAdherenceCard(adherence) {
+  const card = document.getElementById('adherenceCard');
+  if (!adherence.length) {
+    card.innerHTML = '<p class="section-title">Adherence</p><div class="empty">No workouts saved yet.</div>';
+    return;
+  }
+  card.innerHTML = `
+    <p class="section-title">Adherence (last 30 days)</p>
+    ${adherence.map(a => `
+      <div class="totals-row"><span>${escapeHtml(a.name)}</span><span>${a.sessionsCount} session${a.sessionsCount === 1 ? '' : 's'}</span></div>
+    `).join('')}
+  `;
+}
+
+function renderRecommendationCards(distribution, adherence) {
+  const container = document.getElementById('recommendationsCards');
+  const goal = settings.goal;
+  const cards = [];
+
+  const majorTotals = MAJOR_CATEGORIES.map(c => ({ category: c, sets: distribution[c] || 0 }));
+  const maxTotal = Math.max(...majorTotals.map(m => m.sets));
+  const topCategory = maxTotal > 0 ? majorTotals.find(m => m.sets === maxTotal) : null;
+  const lowCategories = topCategory ? majorTotals.filter(m => m.sets < maxTotal / 2) : [];
+
+  if (lowCategories.length) {
+    if (goal === 'lose') {
+      const names = lowCategories.map(c => c.category).join(', ');
+      cards.push({
+        title: 'Distribution note (lower priority for your goal)',
+        body: `${names} ${lowCategories.length === 1 ? 'gets' : 'get'} noticeably less volume than ${topCategory.category} (${topCategory.sets} sets). Since your focus is weight loss, consistency and your calorie deficit matter more than this — but worth knowing if you'd also like to build muscle there.`,
+        fixCategory: lowCategories[0].category
+      });
+    } else {
+      lowCategories.forEach(c => {
+        cards.push({
+          title: `${c.category} volume is low`,
+          body: `${c.category} gets ${c.sets} set${c.sets === 1 ? '' : 's'} across your routine, vs ${topCategory.sets} for ${topCategory.category}. Consider adding an exercise if growing ${c.category.toLowerCase()} matters to you.`,
+          fixCategory: c.category
+        });
+      });
+    }
+  }
+
+  const maxSessions = Math.max(0, ...adherence.map(a => a.sessionsCount));
+  adherence.forEach(a => {
+    if (maxSessions > 0 && a.sessionsCount < maxSessions / 2) {
+      cards.push({
+        title: `${a.name} is falling behind`,
+        body: `Logged ${a.sessionsCount} time${a.sessionsCount === 1 ? '' : 's'} in the last 30 days, vs ${maxSessions} for your most-trained workout. This is often the easiest day to skip — and the one worth protecting.`,
+        startWorkoutId: a.id
+      });
+    }
+  });
+
+  if (!cards.length) {
+    container.innerHTML = '<div class="card"><p class="section-title">Recommendations</p><div class="empty">Nothing stands out right now — your routine looks reasonably balanced.</div></div>';
+    return;
+  }
+
+  container.innerHTML = cards.map(c => `
+    <div class="card">
+      <p class="section-title">${escapeHtml(c.title)}</p>
+      <p style="font-size:14px; line-height:1.5">${escapeHtml(c.body)}</p>
+      <div class="pill-group" style="margin-top:12px">
+        ${c.fixCategory ? getWorkouts().map(w => `<button type="button" class="pill fix-add-btn" data-workout-id="${w.id}" data-search="${escapeHtml(c.fixCategory)}">+ Add to ${escapeHtml(w.name)}</button>`).join('') : ''}
+        ${c.startWorkoutId ? `<button type="button" class="pill start-fix-btn" data-workout-id="${c.startWorkoutId}">Start ${escapeHtml(getWorkouts().find(w => w.id === c.startWorkoutId).name)} now</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.fix-add-btn').forEach(btn => {
+    btn.addEventListener('click', () => openWorkoutBuilder(btn.dataset.workoutId, btn.dataset.search));
+  });
+  container.querySelectorAll('.start-fix-btn').forEach(btn => {
+    btn.addEventListener('click', () => startWorkoutById(btn.dataset.workoutId));
+  });
+}
+
+function renderInsightsTab() {
+  document.querySelectorAll('#tab-insights .pill[data-goal]').forEach(b => b.classList.toggle('active', b.dataset.goal === settings.goal));
+  const distribution = computeCategoryDistribution();
+  const adherence = computeAdherence();
+  renderDistributionCard(distribution);
+  renderAdherenceCard(adherence);
+  renderRecommendationCards(distribution, adherence);
 }
 
 // --- Progress ---
