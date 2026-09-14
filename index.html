@@ -2411,12 +2411,12 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
       count = getEntries().length;
       if (Array.isArray(imported.library)) {
         const libMap = new Map(getLibrary().map(i => [i.name.toLowerCase(), i]));
-        imported.library.forEach(i => { if (!libMap.has(i.name.toLowerCase())) libMap.set(i.name.toLowerCase(), i); });
+        imported.library.forEach(i => libMap.set(i.name.toLowerCase(), i));
         saveLibrary(Array.from(libMap.values()));
       }
       if (Array.isArray(imported.workouts)) {
-        const wMap = new Map(getWorkouts().map(w => [w.id, w]));
-        imported.workouts.forEach(w => wMap.set(w.id, w));
+        const wMap = new Map(getWorkouts().map(w => [w.name.toLowerCase(), w]));
+        imported.workouts.forEach(w => wMap.set(w.name.toLowerCase(), w));
         saveWorkouts(Array.from(wMap.values()));
       }
       if (Array.isArray(imported.bmEntries)) {
@@ -2424,7 +2424,7 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
       }
       if (Array.isArray(imported.mealLibrary)) {
         const mMap = new Map(getMealLibrary().map(m => [m.name.toLowerCase(), m]));
-        imported.mealLibrary.forEach(m => { if (!mMap.has(m.name.toLowerCase())) mMap.set(m.name.toLowerCase(), m); });
+        imported.mealLibrary.forEach(m => mMap.set(m.name.toLowerCase(), m));
         saveMealLibrary(Array.from(mMap.values()));
       }
       if (Array.isArray(imported.nutritionEntries)) {
