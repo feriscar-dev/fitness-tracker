@@ -1489,17 +1489,18 @@ function renderSessionHtml() {
     const todaysSets = getEntries()
       .filter(e => e.exercise === ex.name && e.date === todayStr())
       .sort((a, b) => a.id.localeCompare(b.id));
-    const isComplete = todaysSets.length >= ex.sets;
+    const setsLoggedToday = todaysSets.reduce((sum, e) => sum + (e.sets || 0), 0);
+    const isComplete = setsLoggedToday >= ex.sets;
     if (isComplete) exercisesCompleted++;
-    totalSetsToday += todaysSets.length;
+    totalSetsToday += setsLoggedToday;
     const setsHtml = todaysSets.length
-      ? todaysSets.map((e, i) => `<span${i === todaysSets.length - 1 ? ' class="new-chip"' : ''}>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')
+      ? todaysSets.map((e, i) => `<span${i === todaysSets.length - 1 ? ' class="new-chip"' : ''}>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}${e.sets > 1 ? ` (×${e.sets} sets)` : ''}</span>`).join('')
       : '<span style="opacity:.5">No sets logged yet today</span>';
     const lastSessionHtml = lastSession
-      ? `<div class="session-sets"><span style="opacity:.6">Last session (${lastSession.date.slice(5)}):</span> ${lastSession.sets.map(e => `<span>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}</span>`).join('')}</div>`
+      ? `<div class="session-sets"><span style="opacity:.6">Last session (${lastSession.date.slice(5)}):</span> ${lastSession.sets.map(e => `<span>${e.weight ? e.weight + (e.unit || 'lb') + ' × ' : ''}${e.reps}${e.sets > 1 ? ` (×${e.sets} sets)` : ''}</span>`).join('')}</div>`
       : '';
     const repText = ex.repMin === ex.repMax ? `${ex.repMin}` : `${ex.repMin}–${ex.repMax}`;
-    const pct = Math.min(100, Math.round((todaysSets.length / ex.sets) * 100));
+    const pct = Math.min(100, Math.round((setsLoggedToday / ex.sets) * 100));
     const libItem = getLibraryItemByName(ex.name);
     const photoUrl = libItem && photoCache[libItem.id];
 
@@ -1513,7 +1514,7 @@ function renderSessionHtml() {
           <button class="remove-ex-btn" data-idx="${idx}">Remove</button>
         </div>
         <div class="goal-block">
-          <div class="goal-text">${isComplete ? '✓ Goal complete — ' : ''}${todaysSets.length} of ${ex.sets} sets logged<span class="goal-rep-target"> · goal ${repText} reps each</span></div>
+          <div class="goal-text">${isComplete ? '✓ Goal complete — ' : ''}${setsLoggedToday} of ${ex.sets} sets logged<span class="goal-rep-target"> · goal ${repText} reps each</span></div>
           <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%"></div></div>
         </div>
         <div class="suggestion">${escapeHtml(suggestion.text)}</div>
