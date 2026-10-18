@@ -174,6 +174,19 @@
   .lib-item:last-child { border-bottom: none; }
   .lib-item-main { flex: 1; min-width: 0; }
   .lib-item .cat { font-size: 11px; color: var(--muted); }
+  .vol-row { margin-bottom: 12px; }
+  .vol-label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+  .vol-status { font-size: 12px; }
+  .vol-status.vol-ok { color: var(--good); }
+  .vol-status.vol-low, .vol-status.vol-high { color: #ffb340; }
+  .vol-plan { color: var(--muted); }
+  .vol-bar { position: relative; height: 10px; background: #0e0e13; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .vol-band { position: absolute; top: 0; bottom: 0; background: rgba(48, 209, 88, 0.15); }
+  .vol-fill { position: absolute; top: 0; bottom: 0; left: 0; transition: width 0.3s ease; }
+  .vol-fill.vol-ok { background: var(--good); }
+  .vol-fill.vol-low, .vol-fill.vol-high { background: #ffb340; }
+  .vol-plan-tick { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: #fff; }
+  .cat-select-row { display: flex; flex-wrap: wrap; gap: 4px; }
   .cat-select { width: auto; padding: 2px 6px; margin-top: 2px; font-size: 11px; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 6px; }
   .lib-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .lib-item-actions button { padding: 6px 10px; font-size: 12px; }
@@ -213,7 +226,15 @@
   .session-exercise.session-complete { border-color: var(--good); background: rgba(48, 209, 88, 0.07); }
   .session-exercise.session-complete .goal-text { color: var(--good); }
   .session-exercise.session-complete .goal-bar-fill { background: var(--good); }
-  .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }
+  .suggestion { background: #0e2a45; border: 1px solid #1c4a73; color: #7cc4ff; font-size: 13px; padding: 10px 12px; border-radius: 10px; margin-bottom: 10px; }
+  .suggestion-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .suggestion-badge { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 6px; background: #1c4a73; color: #cfe8ff; }
+  .suggestion-target { font-size: 17px; font-weight: 700; color: var(--text); }
+  .suggestion-detail { margin-top: 6px; font-size: 12px; opacity: 0.85; }
+  .suggestion.action-up { background: rgba(48, 209, 88, 0.1); border-color: var(--good); color: #8ee6a5; }
+  .suggestion.action-up .suggestion-badge { background: var(--good); color: #062b12; }
+  .suggestion.action-repeat { background: rgba(255, 159, 10, 0.08); border-color: #8a5a12; color: #ffc46b; }
+  .suggestion.action-repeat .suggestion-badge { background: #8a5a12; color: #ffe2b3; }
   .session-sets { margin-top: 10px; font-size: 13px; color: var(--muted); }
   .session-sets span { display: inline-block; background: #0e0e13; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; margin: 3px 4px 0 0; }
   @keyframes chipPop { 0% { transform: scale(0.85); opacity: 0; border-color: var(--good); color: var(--good); } 100% { transform: scale(1); opacity: 1; } }
@@ -422,9 +443,10 @@
       </div>
     </div>
     <div class="card" id="distributionCard"></div>
+    <div class="card" id="trendCard"></div>
     <div class="card" id="adherenceCard"></div>
     <div id="recommendationsCards"></div>
-    <p style="color:var(--muted); font-size:12px; text-align:center; padding:0 8px">Counts each exercise toward its primary muscle category only — compound lifts also stimulate secondary muscles not reflected here. General guidance, not personalized training or medical advice.</p>
+    <p style="color:var(--muted); font-size:12px; text-align:center; padding:0 8px">Simplified view: each set counts fully toward an exercise's primary muscle group and as half a set toward up to two secondary groups (editable in the Workouts builder), across six broad groups rather than individual muscles. General guidance, not personalized training or medical advice.</p>
   </section>
 
   <section id="tab-data" class="tab">
@@ -585,6 +607,7 @@ const CATEGORY_COLORS = {
   Core: '#ffd43b',
   Custom: '#0a84ff'
 };
+const MUSCLE_GROUPS = ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms', 'Core'];
 
 function getEntries() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
@@ -630,6 +653,55 @@ function updateLibraryCategory(id, category) {
   if (!item) return;
   item.category = category;
   saveLibrary(lib);
+}
+// Secondary muscle groups for default exercises (counted as half a set each in Insights —
+// the "fractional" counting that fit best in Pelland et al.'s volume dose-response meta-regression).
+// A library item's own `secondary` array, once edited in the builder, overrides this.
+const DEFAULT_SECONDARY = {
+  'chest press machine': ['Shoulders', 'Arms'],
+  'incline chest press machine': ['Shoulders', 'Arms'],
+  'pec deck (chest fly) machine': ['Shoulders'],
+  'cable crossover': ['Shoulders'],
+  'flat barbell bench press': ['Shoulders', 'Arms'],
+  'incline barbell bench press': ['Shoulders', 'Arms'],
+  'dumbbell bench press': ['Shoulders', 'Arms'],
+  'push-ups': ['Shoulders', 'Arms'],
+  'lat pulldown': ['Arms'],
+  'seated cable row': ['Arms', 'Shoulders'],
+  'assisted pull-up machine': ['Arms'],
+  't-bar row': ['Arms', 'Shoulders'],
+  'back extension machine': ['Legs', 'Core'],
+  'face pulls': ['Shoulders'],
+  'chest-supported row': ['Arms', 'Shoulders'],
+  'reverse fly': ['Shoulders'],
+  'shoulder press machine': ['Arms'],
+  'dumbbell shoulder press': ['Arms'],
+  'rear delt fly machine': ['Back'],
+  'db rdl': ['Back'],
+  'roman chair back extension': ['Legs', 'Back']
+};
+const MAX_SECONDARY = 2;
+function getSecondaries(item) {
+  if (!item) return [];
+  const list = Array.isArray(item.secondary) ? item.secondary : (DEFAULT_SECONDARY[item.name.toLowerCase()] || []);
+  return list.filter(c => c !== item.category && c !== 'Custom').slice(0, MAX_SECONDARY);
+}
+function updateLibrarySecondary(id, slot, category) {
+  const lib = getLibrary();
+  const item = lib.find(i => i.id === id);
+  if (!item) return;
+  const current = getSecondaries(item);
+  current[slot] = category;
+  item.secondary = [...new Set(current.filter(Boolean))];
+  saveLibrary(lib);
+}
+// Muscle-group credit for one set of an exercise: primary = 1, each secondary = 0.5.
+function muscleCredit(exerciseName) {
+  const item = getLibraryItemByName(exerciseName);
+  if (!item) return {};
+  const credit = { [item.category]: 1 };
+  getSecondaries(item).forEach(c => { credit[c] = (credit[c] || 0) + 0.5; });
+  return credit;
 }
 function getWorkouts() {
   try {
@@ -1288,9 +1360,19 @@ function renderBuilderHtml() {
       ${exerciseVisualHtml(i.name)}
       <div class="lib-item-main">
         <div>${escapeHtml(i.name)}</div>
-        <select class="cat-select" data-id="${i.id}">
-          ${Object.keys(CATEGORY_COLORS).map(c => `<option value="${c}"${c === i.category ? ' selected' : ''}>${c}</option>`).join('')}
-        </select>
+        <div class="cat-select-row">
+          <select class="cat-select" data-id="${i.id}" title="Primary muscle group">
+            ${Object.keys(CATEGORY_COLORS).map(c => `<option value="${c}"${c === i.category ? ' selected' : ''}>${c}</option>`).join('')}
+          </select>
+          ${i.category === 'Custom' ? '' : Array.from({ length: MAX_SECONDARY }, (_, slot) => {
+            const current = getSecondaries(i)[slot] || '';
+            const opts = MUSCLE_GROUPS.filter(c => c !== i.category);
+            return `<select class="cat-select sec-select" data-id="${i.id}" data-slot="${slot}" title="Secondary muscle group (counts as half a set)">
+              <option value=""${current ? '' : ' selected'}>+ 2nd</option>
+              ${opts.map(c => `<option value="${c}"${c === current ? ' selected' : ''}>½ ${c}</option>`).join('')}
+            </select>`;
+          }).join('')}
+        </div>
       </div>
       <div class="lib-item-actions">
         <button class="add-ex-btn" data-name="${escapeHtml(i.name)}">Add</button>
@@ -1360,7 +1442,8 @@ function wireBuilder() {
 
   document.querySelectorAll('.cat-select').forEach(sel => {
     sel.addEventListener('change', () => {
-      updateLibraryCategory(sel.dataset.id, sel.value);
+      if (sel.classList.contains('sec-select')) updateLibrarySecondary(sel.dataset.id, parseInt(sel.dataset.slot, 10), sel.value);
+      else updateLibraryCategory(sel.dataset.id, sel.value);
       renderWorkoutsTab();
     });
   });
@@ -1447,35 +1530,63 @@ document.getElementById('photoFileInput').addEventListener('change', async (e) =
   if (document.getElementById('tab-workouts').classList.contains('active')) renderWorkoutsTab();
 });
 
+// Smallest load step for double progression (enzo-plan.md: "add the smallest increment").
+const WEIGHT_INCREMENT = { lb: 5, kg: 2.5 };
+
+// Today's plan for an exercise, from last session (double progression), plus the
+// values to prefill the inputs with — the latest set logged today wins over the plan,
+// so a weight/rep change carries into the next set instead of resetting.
 function progressionSuggestion(name, repMin, repMax) {
   const lastSession = getLastSessionSets(name);
+  let plan;
   if (lastSession && lastSession.sets.length) {
-    const weight = lastSession.sets[lastSession.sets.length - 1].weight;
+    const weight = Number(lastSession.sets[lastSession.sets.length - 1].weight) || 0;
     const unit = lastSession.sets[0].unit || 'lb';
+    const repsList = lastSession.sets.map(s => s.reps).join('/');
     const minReps = Math.min(...lastSession.sets.map(s => s.reps));
+    const lastText = `Last (${lastSession.date.slice(5)}): ${weight ? weight + unit + ' × ' : ''}${repsList}`;
     if (minReps >= repMax) {
-      return {
-        text: `Last session you hit ${repMax}+ reps on every set — increase the weight and restart at ${repMin} reps.`,
+      const inc = WEIGHT_INCREMENT[unit] || 5;
+      const newWeight = weight ? weight + inc : weight;
+      plan = {
+        action: 'up', badge: '⬆ Weight up',
+        target: weight ? `${newWeight}${unit} × ${repMin} reps` : `Add load · ${repMin} reps`,
+        detail: `${lastText} — maxed out at ${repMax} on every set. ${weight ? `+${inc}${unit}, ` : ''}back to ${repMin} reps.`,
+        weight: newWeight, reps: repMin
+      };
+    } else if (minReps < repMin) {
+      plan = {
+        action: 'repeat', badge: '= Repeat',
+        target: `${weight ? weight + unit + ' × ' : ''}${repMin} reps`,
+        detail: `${lastText} — below ${repMin} reps, so stay at this weight and aim for ${repMin} on every set.`,
         weight, reps: repMin
       };
+    } else {
+      const targetReps = Math.min(repMax, minReps + 1);
+      plan = {
+        action: 'rep', badge: '➕ Add a rep',
+        target: `${weight ? weight + unit + ' × ' : ''}${targetReps} reps`,
+        detail: `${lastText} — same weight, one more rep. Weight goes up once every set hits ${repMax}.`,
+        weight, reps: targetReps
+      };
     }
-    const targetReps = Math.min(repMax, minReps + 1);
-    return {
-      text: `Last session (${lastSession.date.slice(5)}): ${weight}${unit} × ${lastSession.sets.map(s => s.reps).join('/')}. Today's target: ${weight}${unit} × ${targetReps} — same for every set this session.`,
-      weight, reps: targetReps
+  } else {
+    plan = {
+      action: 'new', badge: 'New',
+      target: `Find a weight for ${repMin} reps`,
+      detail: `No history yet — pick a weight you can do for ${repMin} reps with 1–2 in reserve, and repeat it for every set today.`,
+      weight: '', reps: repMin
     };
   }
   const todaySoFar = getEntries()
     .filter(e => e.exercise === name && e.date === todayStr())
     .sort((a, b) => a.id.localeCompare(b.id));
   if (todaySoFar.length) {
-    const first = todaySoFar[0];
-    return {
-      text: `Matching your first set today: ${first.weight}${first.unit || 'lb'} × ${first.reps} — same for every set this session.`,
-      weight: first.weight, reps: first.reps
-    };
+    const latest = todaySoFar[todaySoFar.length - 1];
+    plan.weight = latest.weight || '';
+    plan.reps = latest.reps;
   }
-  return { text: `No history yet — pick a weight you can do for ${repMin} reps, and repeat it for every set today.`, weight: '', reps: repMin };
+  return plan;
 }
 
 function renderSessionHtml() {
@@ -1517,7 +1628,10 @@ function renderSessionHtml() {
           <div class="goal-text">${isComplete ? '✓ Goal complete — ' : ''}${setsLoggedToday} of ${ex.sets} sets logged<span class="goal-rep-target"> · goal ${repText} reps each</span></div>
           <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%"></div></div>
         </div>
-        <div class="suggestion">${escapeHtml(suggestion.text)}</div>
+        <div class="suggestion action-${suggestion.action}">
+          <div class="suggestion-top"><span class="suggestion-badge">${escapeHtml(suggestion.badge)}</span><span class="suggestion-target">${escapeHtml(suggestion.target)} · ${ex.sets} sets</span></div>
+          <div class="suggestion-detail">${escapeHtml(suggestion.detail)}</div>
+        </div>
         ${lastSessionHtml}
         <div class="row">
           <div>
@@ -1850,7 +1964,78 @@ function renderNutritionTodayList() {
 }
 
 // --- Insights ---
-const MAJOR_CATEGORIES = ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms'];
+// Weekly hard-set target per muscle group: 10+ is where the dose-response evidence is
+// solid (Schoenfeld et al. 2017); above ~20 the extra benefit is unclear, so we only call it "high".
+const VOLUME_TARGET = { min: 10, max: 20 };
+const VOLUME_WEEKS = 4;
+const TREND_WEEKS = 12;
+let trendFocus = null;
+
+function daysAgoStr(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const p = x => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Weighted sets per muscle group for logged entries with startStr <= date <= endStr.
+function loggedMuscleSets(entries, startStr, endStr) {
+  const totals = {};
+  entries.forEach(e => {
+    if (e.date < startStr || e.date > endStr) return;
+    Object.entries(muscleCredit(e.exercise)).forEach(([cat, w]) => {
+      totals[cat] = (totals[cat] || 0) + w * (e.sets || 1);
+    });
+  });
+  return totals;
+}
+
+// Average logged sets/week over the last VOLUME_WEEKS weeks. If history is shorter than that,
+// divide by the weeks actually covered so a new user isn't shown artificially low numbers.
+function computeLoggedWeekly() {
+  const entries = getEntries();
+  const start = daysAgoStr(VOLUME_WEEKS * 7 - 1);
+  const totals = loggedMuscleSets(entries, start, todayStr());
+  const firstDate = entries.reduce((min, e) => (!min || e.date < min ? e.date : min), null);
+  let weeks = VOLUME_WEEKS;
+  if (firstDate && firstDate > start) {
+    const days = Math.round((new Date(todayStr() + 'T00:00:00') - new Date(firstDate + 'T00:00:00')) / 86400000) + 1;
+    weeks = Math.max(1, Math.min(VOLUME_WEEKS, Math.ceil(days / 7)));
+  }
+  const weekly = {};
+  MUSCLE_GROUPS.forEach(c => { weekly[c] = (totals[c] || 0) / weeks; });
+  return { weekly, weeks, hasData: !!firstDate };
+}
+
+// Planned sets/week from saved workouts, assuming each workout is done once a week.
+function computeCategoryDistribution() {
+  const totals = {};
+  getWorkouts().forEach(w => {
+    w.exercises.forEach(ex => {
+      Object.entries(muscleCredit(ex.name)).forEach(([cat, wt]) => {
+        totals[cat] = (totals[cat] || 0) + wt * (ex.sets || 0);
+      });
+    });
+  });
+  return totals;
+}
+
+function computeTrend() {
+  const entries = getEntries();
+  return Array.from({ length: TREND_WEEKS }, (_, i) => {
+    const weeksBack = TREND_WEEKS - 1 - i;
+    const start = daysAgoStr(weeksBack * 7 + 6);
+    const end = daysAgoStr(weeksBack * 7);
+    return { date: start, totals: loggedMuscleSets(entries, start, end) };
+  });
+}
+
+function volumeStatus(sets) {
+  if (sets < VOLUME_TARGET.min) return 'low';
+  if (sets > VOLUME_TARGET.max) return 'high';
+  return 'ok';
+}
+const fmtSets = n => (Math.round(n * 10) / 10).toString();
 
 document.querySelectorAll('#tab-insights .pill[data-goal]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1859,18 +2044,6 @@ document.querySelectorAll('#tab-insights .pill[data-goal]').forEach(btn => {
     renderInsightsTab();
   });
 });
-
-function computeCategoryDistribution() {
-  const totals = {};
-  getWorkouts().forEach(w => {
-    w.exercises.forEach(ex => {
-      const item = getLibraryItemByName(ex.name);
-      const category = item ? item.category : 'Custom';
-      totals[category] = (totals[category] || 0) + (ex.sets || 0);
-    });
-  });
-  return totals;
-}
 
 function computeAdherence(lookbackDays = 30) {
   const cutoff = new Date();
@@ -1885,24 +2058,63 @@ function computeAdherence(lookbackDays = 30) {
   });
 }
 
-function renderDistributionCard(distribution) {
+function renderDistributionCard(planned, logged) {
   const card = document.getElementById('distributionCard');
-  const maxSets = Math.max(1, ...MAJOR_CATEGORIES.map(c => distribution[c] || 0));
+  const scaleMax = Math.max(VOLUME_TARGET.max * 1.2, ...MUSCLE_GROUPS.map(c => Math.max(planned[c] || 0, logged.weekly[c] || 0)));
+  const pctOf = v => Math.min(100, (v / scaleMax) * 100);
+  const windowText = logged.weeks === VOLUME_WEEKS ? `last ${VOLUME_WEEKS} weeks` : `your first ${logged.weeks} week${logged.weeks === 1 ? '' : 's'} of history`;
   card.innerHTML = `
-    <p class="section-title">Weekly Set Distribution</p>
-    <p style="color:var(--muted); font-size:12px; margin-bottom:10px">Sets programmed per muscle group across your saved workouts.</p>
-    ${MAJOR_CATEGORIES.map(cat => {
-      const sets = distribution[cat] || 0;
-      const color = CATEGORY_COLORS[cat] || CATEGORY_COLORS.Custom;
-      const pct = Math.round((sets / maxSets) * 100);
+    <p class="section-title">Weekly Sets per Muscle</p>
+    <p style="color:var(--muted); font-size:12px; margin-bottom:10px">Sets you actually logged, averaged over ${windowText}. Shaded zone = ${VOLUME_TARGET.min}–${VOLUME_TARGET.max} sets/week target; white tick = what your saved workouts plan.</p>
+    ${logged.hasData ? '' : '<div class="empty" style="margin-bottom:10px">No sets logged yet — bars will fill in as you train.</div>'}
+    ${MUSCLE_GROUPS.map(cat => {
+      const done = logged.weekly[cat] || 0;
+      const plan = planned[cat] || 0;
+      const status = volumeStatus(done);
+      const statusText = status === 'low' ? 'below target' : status === 'high' ? 'high' : 'on target';
       return `
-        <div style="margin-bottom:10px">
-          <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px"><span>${cat}</span><span style="color:var(--muted)">${sets} sets</span></div>
-          <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%; background:${color}"></div></div>
+        <div class="vol-row">
+          <div class="vol-label"><span>${cat}</span><span class="vol-status vol-${status}">${fmtSets(done)}/wk · ${statusText}<span class="vol-plan"> · planned ${fmtSets(plan)}</span></span></div>
+          <div class="vol-bar">
+            <div class="vol-band" style="left:${pctOf(VOLUME_TARGET.min)}%; width:${pctOf(VOLUME_TARGET.max) - pctOf(VOLUME_TARGET.min)}%"></div>
+            <div class="vol-fill vol-${status}" style="width:${pctOf(done)}%"></div>
+            ${plan ? `<div class="vol-plan-tick" style="left:${pctOf(plan)}%"></div>` : ''}
+          </div>
         </div>
       `;
     }).join('')}
   `;
+}
+
+function renderTrendCard() {
+  const card = document.getElementById('trendCard');
+  const weeks = computeTrend();
+  const hasData = weeks.some(w => MUSCLE_GROUPS.some(c => w.totals[c]));
+  card.innerHTML = `
+    <p class="section-title">Historical Trend</p>
+    <p style="color:var(--muted); font-size:12px; margin-bottom:10px">Logged sets per week, last ${TREND_WEEKS} weeks (each point is a 7-day window ending on the latest day). Tap a muscle to focus it.</p>
+    <div class="pill-group" style="margin-bottom:10px">
+      <button type="button" class="pill trend-pill${trendFocus ? '' : ' active'}" data-cat="">All</button>
+      ${MUSCLE_GROUPS.map(c => `<button type="button" class="pill trend-pill${trendFocus === c ? ' active' : ''}" data-cat="${c}" style="${trendFocus === c ? `background:${CATEGORY_COLORS[c]}; color:#111` : `border-color:${CATEGORY_COLORS[c]}`}">${c}</button>`).join('')}
+    </div>
+    <canvas id="trendChart"></canvas>
+  `;
+  card.querySelectorAll('.trend-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      trendFocus = btn.dataset.cat || null;
+      renderTrendCard();
+    });
+  });
+  const canvas = document.getElementById('trendChart');
+  if (!hasData) { drawChart(canvas, []); return; }
+  const seriesFor = c => weeks.map(w => ({ date: w.date, value: w.totals[c] || 0 }));
+  const others = MUSCLE_GROUPS.filter(c => c !== trendFocus);
+  drawChart(canvas, trendFocus ? seriesFor(trendFocus) : [], {
+    color: trendFocus ? CATEGORY_COLORS[trendFocus] : undefined,
+    band: [VOLUME_TARGET.min, VOLUME_TARGET.max],
+    overlays: others.map(c => ({ points: seriesFor(c), color: CATEGORY_COLORS[c], alpha: trendFocus ? 0.18 : 0.75 })),
+    labelPoints: seriesFor(MUSCLE_GROUPS[0])
+  });
 }
 
 function renderAdherenceCard(adherence) {
@@ -1973,37 +2185,71 @@ function removeExerciseFromWorkout(workoutId, exerciseName) {
   saveWorkouts(workouts);
 }
 
-function renderRecommendationCards(distribution, adherence) {
+// For a muscle group, the planned exercise (primary category match) logged least often across
+// its workout's sessions in the last VOLUME_WEEKS weeks. A "session" = a date with any of that
+// workout's exercises logged.
+function mostSkippedExercise(category) {
+  const start = daysAgoStr(VOLUME_WEEKS * 7 - 1);
+  const entries = getEntries().filter(e => e.date >= start);
+  let worst = null;
+  getWorkouts().forEach(w => {
+    const names = w.exercises.map(ex => ex.name);
+    const sessionDates = new Set(entries.filter(e => names.includes(e.exercise)).map(e => e.date));
+    if (sessionDates.size < 2) return;
+    w.exercises.forEach(ex => {
+      const item = getLibraryItemByName(ex.name);
+      if (!item || item.category !== category) return;
+      const done = new Set(entries.filter(e => e.exercise === ex.name && sessionDates.has(e.date)).map(e => e.date)).size;
+      const missRate = 1 - done / sessionDates.size;
+      if (missRate > 0 && (!worst || missRate > worst.missRate)) {
+        worst = { exerciseName: ex.name, workoutId: w.id, workoutName: w.name, done, sessions: sessionDates.size, missRate };
+      }
+    });
+  });
+  return worst;
+}
+
+function renderRecommendationCards(distribution, adherence, logged) {
   const container = document.getElementById('recommendationsCards');
   const goal = settings.goal;
   const allWorkoutIds = getWorkouts().map(w => w.id);
   const cards = [];
 
-  const majorTotals = MAJOR_CATEGORIES.map(c => ({ category: c, sets: distribution[c] || 0 }));
-  const maxTotal = Math.max(...majorTotals.map(m => m.sets));
-  const topCategory = maxTotal > 0 ? majorTotals.find(m => m.sets === maxTotal) : null;
-  const lowCategories = topCategory ? majorTotals.filter(m => m.sets < maxTotal / 2) : [];
+  const low = logged.hasData ? MUSCLE_GROUPS.filter(c => volumeStatus(logged.weekly[c]) === 'low') : [];
+  const high = logged.hasData ? MUSCLE_GROUPS.filter(c => volumeStatus(logged.weekly[c]) === 'high') : [];
 
-  if (lowCategories.length) {
-    if (goal === 'lose') {
-      const names = lowCategories.map(c => c.category).join(', ');
-      cards.push({
-        title: 'Distribution note (lower priority for your goal)',
-        body: `${names} ${lowCategories.length === 1 ? 'gets' : 'get'} noticeably less volume than ${topCategory.category} (${topCategory.sets} sets). Since your focus is weight loss, consistency and your calorie deficit matter more than this — but worth knowing if you'd also like to build muscle there.`,
-        fixCategory: lowCategories[0].category,
-        fixWorkoutIds: allWorkoutIds
-      });
-    } else {
-      lowCategories.forEach(c => {
-        cards.push({
-          title: `${c.category} volume is low`,
-          body: `${c.category} gets ${c.sets} set${c.sets === 1 ? '' : 's'} across your routine, vs ${topCategory.sets} for ${topCategory.category}. Consider adding an exercise if growing ${c.category.toLowerCase()} matters to you.`,
-          fixCategory: c.category,
-          fixWorkoutIds: allWorkoutIds
-        });
-      });
-    }
+  if (low.length && goal === 'lose') {
+    cards.push({
+      title: 'Volume note (lower priority for your goal)',
+      body: `${low.map(c => `${c} ${fmtSets(logged.weekly[c])}`).join(', ')} sets/week — below the ${VOLUME_TARGET.min}+ target. Since your focus is weight loss, consistency and your calorie deficit matter more than this — but worth knowing if you'd also like to build muscle there.`,
+      fixCategory: low[0],
+      fixWorkoutIds: allWorkoutIds
+    });
+  } else {
+    low.forEach(c => {
+      const done = logged.weekly[c];
+      const plan = distribution[c] || 0;
+      const skipped = mostSkippedExercise(c);
+      let body = `You're averaging ${fmtSets(done)} sets/week for ${c} vs a ${VOLUME_TARGET.min}+ target.`;
+      if (plan >= VOLUME_TARGET.min && skipped) {
+        body += ` Your workouts plan ${fmtSets(plan)}, so the gap is skipped sets — ${skipped.exerciseName} was logged in ${skipped.done} of your last ${skipped.sessions} ${skipped.workoutName} sessions.`;
+      } else if (plan >= VOLUME_TARGET.min) {
+        body += ` Your workouts plan ${fmtSets(plan)}, so the gap is sessions or sets being skipped, not the routine itself.`;
+      } else {
+        body += ` Your saved workouts only plan ${fmtSets(plan)}, so even a perfect week falls short — consider adding a ${c.toLowerCase()} exercise.`;
+      }
+      cards.push(skipped && plan >= VOLUME_TARGET.min
+        ? { title: `${c} volume is low`, body, startWorkoutId: skipped.workoutId }
+        : { title: `${c} volume is low`, body, fixCategory: c, fixWorkoutIds: allWorkoutIds });
+    });
   }
+
+  high.forEach(c => {
+    cards.push({
+      title: `${c} volume is high`,
+      body: `${fmtSets(logged.weekly[c])} sets/week for ${c} — above ~${VOLUME_TARGET.max}, where extra sets show unclear added benefit. Not a problem by itself, but if recovery or time is tight, this is where to trim first.`
+    });
+  });
 
   const maxSessions = Math.max(0, ...adherence.map(a => a.sessionsCount));
   adherence.forEach(a => {
@@ -2076,10 +2322,12 @@ function renderRecommendationCards(distribution, adherence) {
 function renderInsightsTab() {
   document.querySelectorAll('#tab-insights .pill[data-goal]').forEach(b => b.classList.toggle('active', b.dataset.goal === settings.goal));
   const distribution = computeCategoryDistribution();
+  const logged = computeLoggedWeekly();
   const adherence = computeAdherence();
-  renderDistributionCard(distribution);
+  renderDistributionCard(distribution, logged);
+  renderTrendCard();
   renderAdherenceCard(adherence);
-  renderRecommendationCards(distribution, adherence);
+  renderRecommendationCards(distribution, adherence, logged);
 }
 
 // --- Progress ---
@@ -2257,7 +2505,10 @@ function renderNutritionProgress() {
   drawChart(document.getElementById('nutritionChart'), points);
 }
 
-function drawChart(canvas, points) {
+// opts (all optional): color — main line color; band: [lo, hi] — shaded target zone;
+// overlays: [{ points, color, alpha }] — extra lines on the same index-based x axis;
+// labelPoints — series to take x-axis date labels from when `points` is empty.
+function drawChart(canvas, points, opts = {}) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 300;
@@ -2267,7 +2518,9 @@ function drawChart(canvas, points) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  if (!points.length) {
+  const overlays = opts.overlays || [];
+  const axisPoints = points.length ? points : (opts.labelPoints || []);
+  if (!axisPoints.length) {
     ctx.fillStyle = '#8e8e96';
     ctx.font = '14px -apple-system';
     ctx.textAlign = 'center';
@@ -2276,11 +2529,18 @@ function drawChart(canvas, points) {
   }
 
   const pad = { l: 36, r: 12, t: 12, b: 22 };
-  const values = points.map(p => p.value);
+  const values = [...points, ...overlays.flatMap(o => o.points)].map(p => p.value);
+  if (opts.band) values.push(opts.band[1]);
   const min = Math.min(0, ...values);
   const max = Math.max(1, ...values);
-  const xStep = points.length > 1 ? (w - pad.l - pad.r) / (points.length - 1) : 0;
+  const xStep = axisPoints.length > 1 ? (w - pad.l - pad.r) / (axisPoints.length - 1) : 0;
   const yScale = v => (h - pad.b) - ((v - min) / ((max - min) || 1)) * (h - pad.t - pad.b);
+
+  if (opts.band) {
+    ctx.fillStyle = 'rgba(48, 209, 88, 0.1)';
+    const top = yScale(opts.band[1]);
+    ctx.fillRect(pad.l, top, w - pad.l - pad.r, yScale(opts.band[0]) - top);
+  }
 
   ctx.strokeStyle = '#2a2a33';
   ctx.fillStyle = '#8e8e96';
@@ -2297,31 +2557,37 @@ function drawChart(canvas, points) {
     ctx.fillText(Math.round(v * 10) / 10, 2, y + 3);
   }
 
-  ctx.strokeStyle = '#0a84ff';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = pad.l + i * xStep;
-    const y = yScale(p.value);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  ctx.fillStyle = '#0a84ff';
-  points.forEach((p, i) => {
-    const x = pad.l + i * xStep;
-    const y = yScale(p.value);
+  const drawLine = (pts, color, width, dots) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fill();
+    pts.forEach((p, i) => {
+      const x = pad.l + i * xStep;
+      const y = yScale(p.value);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    if (!dots) return;
+    ctx.fillStyle = color;
+    pts.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(pad.l + i * xStep, yScale(p.value), 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  };
+  overlays.forEach(o => {
+    ctx.globalAlpha = o.alpha ?? 1;
+    drawLine(o.points, o.color, 1.5, false);
   });
+  ctx.globalAlpha = 1;
+  if (points.length) drawLine(points, opts.color || '#0a84ff', 2, true);
 
   ctx.fillStyle = '#8e8e96';
   ctx.textAlign = 'center';
-  const labelIdxs = points.length === 1 ? [0] : [0, Math.floor((points.length - 1) / 2), points.length - 1];
+  const labelIdxs = axisPoints.length === 1 ? [0] : [0, Math.floor((axisPoints.length - 1) / 2), axisPoints.length - 1];
   labelIdxs.forEach(i => {
     const x = pad.l + i * xStep;
-    ctx.fillText(String(points[i].date).slice(5), x, h - 6);
+    ctx.fillText(String(axisPoints[i].date).slice(5), x, h - 6);
   });
 }
 
